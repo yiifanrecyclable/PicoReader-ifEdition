@@ -1,0 +1,116 @@
+# SPDX-License-Identifier: Apache-2.0
+"""扁平云目录的真实客户端/原生事务，网络使用内存替身。 / Flat cloud client/native transactions over an in-memory transport."""
+from pathlib import Path
+from unittest.mock import patch
+from xml.sax.saxutils import escape
+import hashlib, io, json, os, subprocess, sys, tempfile, unittest, urllib.parse, zipfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'simulator'))
+import cloud_client as cloud
+REPO = Path(__file__).resolve().parents[1]
+
+class Response(io.BytesIO):
+    def __init__(self, data, status, etag):
+        super().__init__(data); self.status = status
+        self.headers = {'Content-Length': str(len(data)), 'ETag': etag}
+
+class MemoryCloud:
+    def __init__(self):
+        self.files = {}; self.calls = []; self.tag = 'bare-token'; self.get_tag = None
+        self.change_on_verification = False
+    def open(self, request, timeout):
+        method = request.get_method(); path = urllib.parse.unquote(urllib.parse.urlsplit(request.full_url).path)
+        relative = path.removeprefix('/dav/PicoBox/')
+        self.calls.append((method, relative, request.get_header('If-match')))
+        if method == 'PROPFIND':
+            entries = dict(self.files)
+            entries['attachments/'] = b''; entries['_pico/'] = b''
+            entries['a'*64+'.pico.json'] = b'{}'; entries['_pico/old/body.md'] = b'old'
+            xml = '<d:multistatus xmlns:d="DAV:">'
+            for name, body in entries.items():
+                xml += '<d:response><d:href>/dav/PicoBox/'+escape(urllib.parse.quote(name,safe='/'))+'</d:href><d:propstat><d:prop>'
+                xml += '<d:resourcetype>'+('<d:collection/>' if name.endswith('/') else '')+'</d:resourcetype><d:getetag>'+escape(self.tag)+'</d:getetag><d:getcontentlength>'+str(len(body))+'</d:getcontentlength>'
+                xml += '<d:creationdate>2026-10-09T00:00:00Z</d:creationdate></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>'
+            return Response((xml+'</d:multistatus>').encode(),207,'')
+        assert method == 'GET' and relative in self.files, (method,relative)
+        body = self.files[relative]
+        previous = [c for c in self.calls if c[:2] == ('GET',relative)]
+        if self.change_on_verification and len(previous) % 2 == 0:
+            body = b'X' * len(body)
+        return Response(body,200,self.tag if self.get_tag is None else self.get_tag)
+
+class FlatSyncTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(dir=REPO/'build',prefix='flat-cloud-')
+        self.work = Path(self.temp.name); self.card = self.work/'card'
+        (self.work/'build/simulator').mkdir(parents=True); self.card.mkdir()
+        self.patches = [patch.object(cloud,'ROOT',self.work),patch.object(cloud,'CARD',self.card),
+                        patch.object(cloud,'STAGE',self.card/'.pico-sync/current'),patch.object(cloud,'PRIVATE',self.work/'private'),
+                        patch.dict(os.environ,{'PICO_SIM_CARD_ROOT':str(self.card),'PICO_TEST_FATFS_RENAME':'1'})]
+        for p in self.patches: p.start()
+        self.remote = MemoryCloud(); self.bridge = cloud.NativeBridge()
+        self.client = cloud.DavClient({'folder':'PicoBox','account':'fiction@example.invalid'},'fictional-password',bridge=self.bridge)
+        self.client.opener = self.remote
+    def tearDown(self):
+        self.client.close()
+        for p in reversed(self.patches): p.stop()
+        self.temp.cleanup()
+    def item(self,name):
+        return next(item for item in self.client.listing() if item['filename']==name)
+    def test_only_three_direct_types_and_no_manifest_gets(self):
+        self.remote.files={'手动.md':b'# A\n','Book.EPUB':b'PK\3\4x','note.TXT':b'text','ignore.pdf':b'pdf'}
+        items=self.client.listing()
+        self.assertEqual({item['filename'] for item in items},{'手动.md','Book.EPUB','note.TXT'})
+        self.assertTrue(all(item['selectable'] and not item['manifest'] for item in items))
+        self.assertEqual(self.remote.calls,[('PROPFIND','',None)])
+    def test_plain_md_update_and_noop_preserve_date_progress(self):
+        name='周记1.md';self.remote.files[name]='# 标题\n\n正文 **重点**。\n'.encode()
+        self.client.download_one(self.item(name));target=self.card/'markdown'/name
+        self.assertEqual(target.read_bytes(),self.remote.files[name])
+        metadata=self.card/'markdown/.index'/('周记1.md.pico');first=metadata.read_text().splitlines()[1]
+        self.bridge.require('progress-save','/sdcard/markdown/'+name)
+        self.client.download_one(self.item(name))
+        self.assertTrue(self.bridge.require('progress-load','/sdcard/markdown/'+name)['present'])
+        self.remote.files[name]='# 更新\n\n新的正文。\n'.encode();self.client.download_one(self.item(name))
+        self.assertEqual(target.read_bytes(),self.remote.files[name]);self.assertEqual(metadata.read_text().splitlines()[1],first)
+        self.assertFalse(self.bridge.require('progress-load','/sdcard/markdown/'+name)['present'])
+    def test_txt_and_epub_route_to_configured_book_folder(self):
+        config=self.work/'build/simulator/nvs/read_pico';config.mkdir(parents=True)
+        (config/'books_dir').write_bytes(b'/sdcard/library\0');(self.card/'library').mkdir()
+        epub=io.BytesIO()
+        with zipfile.ZipFile(epub,'w') as z: z.writestr('mimetype','application/epub+zip')
+        self.remote.files={'Book.epub':epub.getvalue(),'随笔.txt':'中文文本。'.encode()};self.remote.tag='"strong"'
+        for item in self.client.listing(): self.client.download_one(item)
+        for name,body in self.remote.files.items(): self.assertEqual((self.card/'library'/name).read_bytes(),body)
+        self.assertTrue(all(c[2]=='"strong"' for c in self.remote.calls if c[0]=='GET'))
+    def test_without_get_etag_hashes_twice(self):
+        self.remote.files={'Test.md':b'# text\n'};self.remote.get_tag=''
+        self.client.download_one(self.item('Test.md'))
+        self.assertEqual(len([c for c in self.remote.calls if c[0]=='GET']),2)
+        self.assertEqual((self.card/'markdown/Test.md').read_bytes(),b'# text\n')
+    def test_changed_verification_preserves_old_body(self):
+        self.remote.files={'Test.md':b'# old\n'};self.client.download_one(self.item('Test.md'))
+        self.remote.calls=[];self.remote.files['Test.md']=b'# new\n';self.remote.change_on_verification=True
+        with self.assertRaises(cloud.CloudError): self.client.download_one(self.item('Test.md'))
+        self.assertEqual((self.card/'markdown/Test.md').read_bytes(),b'# old\n')
+    def test_weak_missing_tags_are_selectable_but_checked_twice(self):
+        self.remote.files={'Test.md':b'# text\n'}
+        for tag in ('','W/"weak"'):
+            self.remote.tag=tag;self.remote.calls=[];item=self.item('Test.md');self.assertTrue(item['selectable'])
+            self.client.download_one(item);self.assertEqual(len([c for c in self.remote.calls if c[0]=='GET']),2)
+    def test_existing_manual_image_refs_download_only_used_attachment(self):
+        image=(REPO/'plugins/obsidian-pico/tests/fixtures/sample-image.png').read_bytes()
+        self.remote.files={'Article.md':b'# text\n\n![](attachments/Article_a8.png)\n','attachments/Article_a8.png':image,'attachments/Article_old.png':image}
+        self.client.download_one(self.item('Article.md'))
+        self.assertTrue((self.card/'markdown/attachments/Article_a8.png').exists())
+        self.assertFalse((self.card/'markdown/attachments/Article_old.png').exists())
+    def test_plugin_text_export_is_downloadable_without_assets(self):
+        plugin=REPO/'plugins/obsidian-pico'
+        code="import {exportText} from './src/export-text.ts'; process.stdout.write(JSON.stringify(exportText('# 文章\\n\\n正文 **重点** ==高亮==\\n\\n![插图](picture.png)\\n','文章')));"
+        result=subprocess.run(['/usr/local/bin/node','--import','tsx','--input-type=module','-e',code],cwd=plugin,capture_output=True,text=True,check=True)
+        exported=json.loads(result.stdout);self.assertTrue(exported['warnings']);self.remote.files={'文章.md':exported['body'].encode()}
+        self.client.download_one(self.item('文章.md'))
+        self.assertEqual((self.card/'markdown/文章.md').read_bytes(),self.remote.files['文章.md'])
+        self.assertFalse(any(c[1].startswith('attachments/') for c in self.remote.calls))
+
+if __name__=='__main__': unittest.main()

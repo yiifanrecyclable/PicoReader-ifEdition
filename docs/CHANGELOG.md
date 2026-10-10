@@ -1,0 +1,330 @@
+# 版本变更 / Changelog
+
+按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
+User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
+
+## 2026-10-10 · Codex · 同步说明与传输入口文案
+
+- IF开发版if.7按用户文案更新坚果云设置的七条使用说明，标题与账号字段同字号，长句自动折行；文件页改为“微读传书”“USB连接”，USB图标改为插头轮廓。 / Development if.7 updates seven Nutstore instructions with a matching heading size and wrapped bullets, renames transfer entries and replaces the USB symbol with a plug outline.
+
+## 2026-10-09 · Codex · 插件发送窗口简化
+
+- Ob插件0.1.4仅显示“正在发送”和成功/失败结果，完成后保留一个“完成”按钮；去掉取消后续发送、技术回执与重复通知，失败保留简短原因。关闭窗口发送继续，完成后通知；云端内容校验与现有配置保留。 / Plugin 0.1.4 shows simple sending/success/failure states and one Done button, removes cancellation/technical receipts and duplicate notices, and retains concise failure reasons. Closing the window continues sending and reports the outcome once; cloud verification and settings remain intact.
+
+## 2026-10-09 · Codex · TF同步假成功修复
+
+- IF开发版if.6修复FatFs不允许重命名覆盖导致日志更新失败、回滚删除新文件却报成功；日志和日期/置顶/同步索引采用TF兼容替换，完整候选先提升再恢复，phase3只验证。恢复后目标/附件长度和SHA256符合才成功，首次/更新/失败/候选恢复回归使用TF同样规则。 / Development if.6 fixes false sync success when FatFs rejects checkpoint replacement and recovery rolls back the body. FAT-compatible journal/index replacement, candidate promotion and phase-3 verification require installed size/hash matches before success.
+
+## 2026-10-09 · Codex · 扁平纯文本同步
+
+- IF开发版if.5只列云目录直属MD/EPUB/TXT，忽略旧清单/版本目录但不删除；无强版本标记二次读取核对SHA256，GET省略ETag不再单独阻止普通文件。 / Development if.5 lists direct MD/EPUB/TXT, leaves legacy manifests/version folders untouched, and double-hash verifies bodies without strong validators.
+- Ob插件0.1.3直接写原名MD，同名最后实际写入覆盖，PUT后准确字节/hash回读。第一阶段图片转文字说明，不读附件、不建目录/清单；本地MD图片阅读保留。 / Plugin 0.1.3 sends text-only original MD names with last-write replacement and exact readback; image placeholders avoid attachments/manifests while local image reading remains available.
+
+## 2026-10-09 · Codex · EPUB栈优化与WiFi文档上传
+
+- IF开发版if.4采纳上游rc88提交`c99400aa`的EPUB元数据/封面临时状态转PSRAM及12 KiB主任务栈，章节HTML样式状态也移出栈；保留rc83 IF功能，真机EPUB重启仍待复测。 / Development if.4 adopts rc88 commit `c99400aa`'s PSRAM-backed EPUB metadata/cover scratch and 12 KiB main stack, and moves chapter HTML style state off-stack. IF remains based on rc83; reported device reboots await verification.
+- EPUB接入上游图文流排，小注图与前后正文同页，多图接排；未知尺寸及MD长图保留整页回退。取消书架封面提起，修复切书后预渲染失效，纯文字页不取消已有预渲染。 / Adopt upstream EPUB image/text flow with small note icons and multiple images on text pages; retain unknown-size/Markdown whole-page fallback. Remove cover lift and repair prefetch after switching and on text turns.
+- WiFi/热点网页新增上传文档，非空MD最多256 KiB固定进入markdown，经文档事务验证与替换；浏览目录上传MD同样接入，失败保留旧正文，同名需确认。 / Add a dedicated WiFi/hotspot uploader for nonempty MD up to 256 KiB into markdown through document validation/replacement transactions; browser uploads use it too, failures preserve old bodies and replacement requires confirmation.
+
+## 2026-10-09 · Codex · TF卡重新插入恢复
+
+- IF开发版if.3在拔卡后先释放页面句柄和卡上字体，重新插卡时自动触发一次显式重新挂载，并通知当前页面重扫；失败不反复重挂，USB存储期间不抢占卡。包含if.2的界面和云端诊断修复，热拔插仍待真机复测。 / Development if.3 closes page handles/card fonts on removal, remounts once on reinsertion and notifies the active page; do not repeatedly retry failures or take media from USB storage. Includes if.2 fixes; hardware hotplug verification remains pending.
+
+## 2026-10-09 · Codex · 首次真机反馈修复
+
+- IF开发版if.2修复Banner缓存的逻辑/物理旋转坐标转换，避免内容缺失和覆盖状态栏；输入框整行共用基线。 / Development if.2 converts cached banner pixels between logical and physical rotations and uses one input-field baseline.
+- 坚果云HTTPS连接等待增至15秒、接收5秒，短暂连接/传输中断最多两次重试；版本与内容校验保留，失败详情留在页面并生成不含私人内容的网络诊断文件。 / Allow 15 seconds to connect and 5 seconds per read, retry transient transport failures at most twice, retain integrity checks and display persistent errors with code-only diagnostics.
+- Ob插件0.1.2上传正文后回读原始字节及SHA256，成功窗口显示收件文件夹与清单/正文路径；真实账户与设备链路仍需继续验收。 / Plugin 0.1.2 verifies uploaded body bytes/hash and shows actual inbox/manifest/body paths; real account/device validation continues.
+
+## 2026-10-09 · Codex · 插件收件设置简化
+
+- Ob插件0.1.1直接填写收件文件夹（默认PicoBox），自动生成URL；第一版统一按文件名覆盖，取消namespace设置，多Vault分组留待后续。旧URL/账号/密码存储标识保留，修改笔记仍需手动发送。 / Plugin 0.1.1 accepts an inbox folder (default PicoBox), derives its URL and uses filename-only updates without a namespace setting; preserve existing URL/account/secret references and keep sending manual.
+
+## 2026-10-09 · Codex · 审阅问题修复
+
+- 设置文字锁屏后保留普通草稿和候选；密码清空时同步重置光标与显示状态，唤醒后可继续输入。 / Preserve ordinary drafts/composition on lock and reset cursor/reveal state when clearing passwords.
+- 恢复配置前保存整组旧状态，普通写入失败回退，回退失败保留TF材料并阻止覆盖备份；旧存储回放测试停用，维护示例统一使用隔离测试。 / Snapshot previous settings/history/network/cloud state before restore, roll back ordinary failures and preserve retry material; retire legacy storage-replay tests in favor of isolated checks.
+- 插件兼容安全裸版本串的条件更新，无变化只读确认；不支持的图片警告后转文字占位，避免整篇被拒收，提供本地测试安装指南。 / Support conditional updates using safely quoted bare version tokens, read-only no-op confirmation and escaped placeholders for unsupported images; provide local test installation instructions.
+
+## 2026-10-08 · Codex · 充电图标辨识度
+
+- 充电时固定空心电池加黑色实心闪电，实际电量继续显示在左侧数字；结束充电后恢复按比例填充，重绘先清空电池内部以免残留旧电量块。 / Show an empty battery with a solid black bolt while charging, retain the numeric charge and restore proportional filling afterward; clear the interior before drawing to prevent stale fill.
+
+## 2026-10-08 · Codex · 模拟器首页续读
+
+- 修复首页最近阅读进入文档/图书时默认第0页覆盖已保存位置；跨页面打开按原文字节位置恢复，独立帧进程退出前保存当前进度，内容页与首页重复进入均续读。 / Resume saved text offsets when home opens documents/books instead of forcing page zero; persist current progress between host frame processes so both entry points repeatedly resume correctly.
+
+## 2026-10-08 · Codex · 首页文字设置精简
+
+- 放大效果预览、修改字号、文字排版标题及当前字号；移除滑轨两端数字，四种排版使用原生三线对齐图标，选中灰底白图标。 / Enlarge preview/size/alignment captions and the current size, remove slider endpoint numbers and use native three-stroke alignment symbols with dark-gray selected backgrounds and white icons.
+
+## 2026-10-08 · Codex · 内容页胶囊切换
+
+- 图书/文档切换改为一体式双段胶囊，下方分别标注EPUB/TXT与Markdown，中文31px、英文23px，选中底色与导航栏统一深灰；两段均可整块点击，直接切换而无动画。 / Use one two-segment capsule for books/documents, with 31px Chinese labels, 23px format subtitles, a shared navigation dark-gray selection and full-segment hit targets, switching without animation.
+
+## 2026-10-08 · Codex · Markdown 分层字号与文字样式
+
+- 文档新增正文/H1/H2/H3独立字号及当前字体预览，滑动松手保存、取消恢复；与图书字号独立、纳入阅读配置备份，重排按文字位置续读。四至六级标题采用正文大小加粗。 / Add separate Markdown body/H1/H2/H3 sizes with actual-font previews, release-to-save and cancel behavior, independent book sizes and backup support; preserve text position on reflow and render lower headings bold at body size.
+- 保留粗体、斜体及Obsidian的灰底高亮和组合，代码/转义保持原样，合成字形复用已有缓存，不增加字体包或外部依赖。 / Preserve bold, italic and Obsidian highlights/combinations, keeping code and escapes literal and synthesizing styles from the existing glyph cache without extra fonts or dependencies.
+
+## 2026-10-08 · Codex · 移除蓝牙翻页器
+
+- 取消蓝牙翻页器/扫描/按键学习设置、状态栏图标、阅读按键处理、主循环启停轮询及WiFi的蓝牙暂停调用；移除组件/图标/专用测试及编译依赖，默认/CI关闭Bluetooth协议栈。无线连接仅保留WiFi和坚果云，下方分组向上收紧；旧设置备份中的蓝牙位忽略，其他设置仍兼容恢复。 / Remove Bluetooth page-turner UI, status icon, input handling, lifecycle polling, network pause hooks, component/assets/tests and build dependencies; disable the stack in default/CI builds, tighten settings and ignore the retired backup bit.
+
+本地默认配置编译后的应用镜像为3,659,104字节，4MiB程序分区剩余约13%；真机验收待完成。 / The local default app build uses 3,659,104 bytes, leaving about 13% of its 4MiB slot; hardware validation remains pending.
+
+## 2026-10-08 · Codex · 首页文字效果预览与排版
+
+- 阅读热力图中未阅读与未来日期统一极浅灰框白底，保留今天标记及月初数字。 / Give unread and future heatmap dates the same faint white-cell style, retaining today and month-start markers.
+
+- 阅读热力图在月初方块右上角标小数字「1」，浅底黑字、深底白字，包括当前周的未来日期，保留周行月份标记。 / Mark first-of-month heatmap cells with an upper-right “1”, switching black/white against the fill, including upcoming days while keeping row month labels.
+
+- banner英文品牌行两侧增加1px灰色细横线，与文字墨迹中心对齐，整体588px、略短于612px模块分割线，设置预览同步。 / Flank the brand with vertically centered thin gray rules spanning 588px together with the text, slightly inset from 612px module dividers; share them with the settings preview.
+
+- banner三行视觉间距加至14px，前两行固定居中；格言默认居中，设置预览页在字号下增加左对齐、右对齐、居中、两端对齐，选择后更新并保存，排版纳入备份。两端对齐逐行铺满，英文优先扩词距，单字居中。 / Increase banner ink gaps to 14px, center its first two rows and default quote, and add four persistent preview alignment controls below size, including per-row justification with English word-space preference and single-character centering.
+
+- 「首页文字」增加与首页同尺寸、实际字体的banner预览，修改文字/字体后回此页；字体下方增加48–120px字号滑块（默认96px、2px步进）。松手后更新预览并保存有效字号，超过两行时保留原值；字号纳入设置备份。「完成」返回首页。 / Add an actual-size banner preview and a 48–120px size slider; text/font edits return to preview, release saves a fitting size with the two-row limit, backup includes size and Done returns home.
+
+## 2026-10-07 · Codex · Pico Reader IF Edition（0.3.3-rc83-if.1，开发版）
+
+- 设置顶部头像/设备名编辑块改为无框只读系统信息，版本基线说明使用23px小字，原高度保留，下方分组位置不变；移除个人资料/头像选择界面及对应预览，旧字段和备份兼容保留。 / Replace profile editing with borderless system/rc83-base information at the original height, retire avatar/name UI and keep legacy backup compatibility.
+
+- banner日期行自动取最长日期单行能容纳的最大字号；格言真实96px、最多两行，超限拒绝保存/字体变更。三行以相同视觉小间距居中偏上，折行仅向下新增，不移动前三行。内建字体上限与TTF统一120px，维持原缓存预算。 / Fit the largest single-row date, render real 96px quotes with a two-row save limit, keep equal ink gaps and fixed above-center anchors, and align UI/TTF size caps at 120px without increasing the cache budget.
+
+- 首页月份标记与星期字号一致，最近书名/文档名字号提高；banner改为日期（公历/星期/离线农历）、小字品牌、大字自定义文字三行，取消长按提示，第三行支持独立TF字体及备份。修复宿主ImageIO多余翻转导致EPUB封面/内页图片颠倒的问题，真机解码不变。 / Unify calendar label sizes, enlarge recent captions, add the three-line lunar-date/brand/custom-text banner with independent font/backup, and fix extra host image flipping without changing device decoders.
+
+- 首页顶部增加大字日期及可长按编辑的固定格言banner，格言纳入设置备份；阅读记录移至中部、最近阅读贴近底栏。热力图收紧列间距、取消倒角，以短横线标记今天，并在含月初的周行左侧显示英文月份缩写。 / Add a large date/editable fixed-quote banner with backup support; place history above bottom-aligned recent reads, using tighter square heat cells, today underlining and month-start row labels.
+
+- 底部导航选中样式改为占满四分之一屏宽及80px全高的矩形，使用深灰背景和白色图标，取消圆角及内边距。 / Fill each selected navigation quarter with a full-height 80px dark-gray rectangle and white icon, without rounded corners or inset margins.
+
+- 首页文档标题与书名字号统一，标题和新增极简进度条整体在行内垂直居中，空行保留清晰细分割线；书名下新增「阅读进度x%」。 / Match recent book/document caption sizes, center document title/bar groups within ruled rows and show the book reading percentage below its title.
+
+- 首页最近阅读移除「查看详情」；加宽两栏间距并增加细竖线，文档区固定四行，空行保留，上下均有分割线。 / Remove the recent-read header action, widen/divide the columns and reserve four ruled document rows, including blanks.
+
+- 首页取消最近同步文稿板块，「继续阅读」改为「最近阅读」；左窄列显示最近图书封面、无数字进度条及书名，右宽列列出最近读过的三篇文档，分别点击续读。 / Replace home resume/sync sections with recent reads: a narrow book-cover/progress/title column and a wider three-document reading-history list, each tappable to resume.
+
+- 取消图书收藏入口、封面标记及收藏优先/筛选；图书与文档共用一致的排序弹窗，四种模式和方向分别记忆，置顶始终优先。旧收藏及筛选位仅兼容保留，不隐藏内容。 / Retire book favorite UI/badges/filters and unify book/document sort dialogs; four modes and direction remain independent, with pins first and legacy favorite/filter records inert.
+
+- 各输入界面统一为贴底中英文键盘，支持UTF-8光标编辑、大小写、完整英文符号、密码显隐及局部灰阶刷新；TF可选词库增加两至四字全拼词组，缺失时保留基础单字输入。 / Unify input screens with a bottom-anchored Chinese/English keyboard, UTF-8 cursor editing, case/full ASCII symbols, secret reveal and partial grayscale updates; optional TF pack adds 2–4 character full-pinyin phrases with built-in character fallback.
+
+- 移除书架样式设置及装饰，图书固定三行三列封面，封面下依次显示无数字阅读进度横条和书名；旧外观配置与备份不再改变陈列。
+- 文档长按统一为「文档详情」浮动卡片，新增单篇清进度确认；取消文档星标、优先与筛选，旧记录兼容，不隐藏内容。
+- 图书详情改为原书架上的浮动卡片，修复额外管理栏及翻页按钮；增加单本置顶/取消置顶，重启保留并纳入设置备份。
+- 管理图书/管理文档统一列表与来源、排序、独立搜索栏；批量按钮下移，分页三键整屏居中。文档置顶仅保留单篇长按操作。
+- 内容页导入改为排序，图书/文档独立支持名称、进度、加入日期和最近阅读；图书收藏优先与筛选融合进面板，偏好及图书首次时间纳入设置备份。文档增加批量管理与失败重试；Markdown阅读记录不再混入图书书架。
+- 坚果云设置仅保留手动填写，移除TF配置导入和电脑配置下载；账号、应用密码和文件夹纳入设置备份与恢复，旧备份兼容。
+- 文件页四个传输按钮取消边框，保留图标、文字和点击范围。
+- 传输图标按原App标识重绘：坚果云仅保留核心坚果，微信读书入口使用经典微信双气泡和四眼，统一为黑白圆角线条。
+- 文件页传输改为WiFi/热点、坚果云同步、微信读书、USB四颗图标加文字按钮；统一单色线条风格，坚果云取代首页同步入口，返回文件页；首页保留最近三篇同步文档。
+- 修复设置分组标题多减80像素造成的错位；无线连接按WiFi、坚果云同步、蓝牙翻页器排列，坚果云进入独立配置页，其他分组与滚动范围统一推导。
+- 整合上游rc83阅读、封面、EPUB/CSS、大图、文件管理、备份恢复、刷新与休眠改进，并加入微读及BLE翻页器。
+- 保留坚果云、Markdown、四周热力图与最近同步文档；列表/代码缩进兼容新排版器。
+- 底部使用上游四颗Lucide图标，保持无文字、80像素高及选中反黑；状态栏保持完整日期时间，加入BLE标志与电量有效性处理。
+- 取消联网OTA，保留本地双槽升级；独立IF项目身份与Pico-IF-update.bin，首次安装走USB。
+- 内建字体改为静态界面子集，完整TF字体及自选字体继续提供动态文字覆盖；程序可装入4MiB分区。
+- 普通文件操作保护文档、附件与同步事务；文档删除和替换仍通过专用服务清理。
+- 宿主增加rc83原生页面与隔离存储回归；微读/BLE模拟为演示，真机验收尚待进行。
+
+## 2026-10-05 · Codex · 自定义开发版（基于0.3.3-rc58，未发布）
+
+- 底部四栏导航改为仅图标，高度从120像素缩至80像素，保留黑底白图标选中态。
+- 坚果云文章列表简化为日期与体积，移除创建/修改前缀，体积单位统一显示KB。
+- 坚果云目录状态移至刷新按钮左侧，区分读取、成功、连接/账号/文件夹错误；失败保留上次完整列表。
+- 修复坚果云无引号ETag被误判而禁用复选框的问题；普通文档下载增加版本与内容复核。
+- 增加坚果云只读拉取：可修改PicoBox目录、手选MD/EPUB/TXT及插图，校验入库并支持中断恢复；首页增加同步入口与最近三篇文档。使用和边界见[坚果云拉取](CLOUD_SYNC.md)。
+- 首页「阅读记录」改为四周热力图，横向MON到SUN，末行本周；移除外框、图例和角落日期，顶栏统一显示完整日期与时间；未读白底灰框、读过即灰阶实心，120分钟及以上保持深灰，今天有位置标记，未来日期弱化；标题右侧仅累计本周一至今的阅读时长。
+- 首页、文件和设置根页去掉重复标题并上移内容；内容页保留图书/文档切换。底栏选中项使用黑底白字与白色Lucide图标；固件升级入口移入设置的阅读与设备分组，文件根目录每页增加至六项。
+- 文档长按菜单增加置顶、星标和取消操作；支持星标筛选，置顶文档优先显示，同名更新保留标记，删除仍另确认。
+- 内建黑体扩充常用汉字与标点；增加独立的标准黑体TF资源，自动补全系统动态标题，并用于未自选字体时的正文。保留用户字体选择；字体包来源与OFL见 `assets/fonts/README.md`。宿主回归与ESP-IDF v6.1默认配置编译已通过；真实账号和真机验收待完成。
+## 2026-10-06 · Codex
+
+- 固件 0.3.3-rc83：
+  - 书架封面抽出与取消改用局部灰阶差分，只驱动变化的像素，减少点击时的黑闪。
+  - 设置主页、蓝牙及扫描页滑动更早响应，一次至少移动三行；各设置列表仅刷新内容区，取消滑动时按次数强制黑白清屏，到边界不重复刷新。
+  - 状态栏时间、电量百分比增至 28 像素，个性签名增至 26 像素；按实际字形与图标中心对齐，长签名避开两侧信息。
+  - 修复蓝牙翻页器及扫描页面叠出设置资料卡。
+  - 修复文件管理首次打开图片时重启；支持直接打开根目录或其他目录中的图片，并浏览同目录图片，保留灰阶层次。
+  - WiFi 与热点传书网页新增“添加文件到当前目录”，支持根目录、多级目录、任意格式与空文件；保留原名称，同名覆盖需确认，失败保留原文件。
+  - 系统字号上限提高到 200%，随重启及配置备份保留；合并屏幕 PMIC 的 VCOM 门控更新，重新开启 VCOM 后等待 2 毫秒再扫描。
+  - 完整刷机包、TF 升级 Bin 和联网 OTA 使用同一固件与版本；基础包保留双槽升级、首次启动确认及异常回退能力。已通过产品配置编译和宿主回归，实际刷新观感与硬件门控效果仍需实机验证。
+
+- 固件 0.3.3-rc82：联网检查发现新版本后直接显示“稍后 / 开始更新”，修复任务收尾后按钮仍显示“取消联网更新”的问题；下载进度至少间隔 5 秒且变化达到 5% 才更新，仅刷新百分比与进度条区域，不累计整页清残影。更新期间关闭 WiFi 省电并在结束后恢复；连接等待延长，短暂断网允许最多三次重连续传，核对续传范围、文件长度与完整 SHA256，失败保留原版本。阅读页返回键、书名与收藏图标统一视觉中心线，内建字体按实际字形边界居中。基础包、TF 升级 Bin 和联网清单同源发布，保留双槽回退及已有数据；已发布的版本下载地址继续保留，避免旧清单缓存导致更新文件失效。已通过产品配置编译、宿主回归和原生渲染核对，真实无线环境与墨水屏观感待验收。
+- 在线刷机页在当前版本下显示更新时间，统一使用北京时间；后续打包自动更新记录。
+- 固件 0.3.3-rc81（联网测试版）：修复 WiFi/热点选择页按下反馈误触发整页刷新、取消点击而无法进入传输页的问题；已保存 WiFi 时直接启动传输，未配网时进入网络选择。状态栏 WiFi、蓝牙图标使用与电池相同的黑色，稍微缩小并靠近电量百分比。所有圆形返回键外圈统一加深。
+- 书架按下书籍向上抽出，取消触摸恢复；页码两侧新增对齐的上一页/下一页箭头，首末页相应箭头置灰。蓝牙翻页器上/左键上一页，下/右键下一页；支持已学习的原始按键，同一报告只执行一次。书架翻页复用局部刷新，各书架样式均生效。基础包与升级包仍使用兼容双槽分区，提供官网 HTTPS 联网更新与 TF 升级 Bin；实机联网升级及观感待用户验收。
+- WiFi 连接页采用加深双层卡片边框、清晰分隔线和较大字号；已连接时提供断开按钮，断开保留凭据，传输中拒绝断开。阅读设置新增翻页模式：上下模式以正文高度三等分，上区上一页、中区切换全屏、下区下一页；普通及全屏阅读均生效，支持上下滑动翻页。左右模式保持原有规则，偏好随重启及配置备份恢复。
+- 固件 0.3.3-rc80（本地验证版）：蓝牙翻页器移到 WiFi 下一行，状态栏加入 Lucide 蓝牙图标并支持与 WiFi 同时显示；按键学习主动响应，顶部显示「识别成功」，清理旧输入并修正带报告 ID 的键盘释放识别。网络分配前串行暂停蓝牙，防止同时初始化；保留内存门限，检查蓝牙任务创建结果，失败回收资源，网络退出后恢复蓝牙。修正 BOOT 行点击范围。
+- 阅读「刷新设置」改为「阅读设置」，集中放置全屏沉浸、电源键翻页、关闭书内图片及长按圆圈键全刷；删除系统设置「阅读操作」。长按圆圈键默认回首页，开关开启后整屏全刷，并加入配置备份。普通阅读题头增加圆形返回键，返回进入书籍前的页面。首行缩进按实际字体字宽计算，并校正段首引号、括号的可见边缘。
+- 固件 0.3.3-rc79（本地验证版）：合并 PR #3 的渐进式 JPEG 封面及比例裁剪、PR #4 的 BLE 蓝牙翻页器和大缓冲 PSRAM 分配。蓝牙设置、扫描及按键学习页按当前设计统一，修正滑动、返回与停止扫描；WiFi/微读/OTA 工作时暂停蓝牙以减少内部内存竞争。
+- 设置新增“升级和恢复”分组：系统升级、保存与恢复、BOOT 刷机独立成行；文件管理移除 BOOT 按钮。系统升级支持已有 TF 卡升级和 HTTPS 联网 OTA：验证官方源、设备型号、版本、应用槽、完整大小、SHA256 与镜像，只写空闲槽，完整验证后才切换启动。官网发布工具同时生成全量基础包、TF Bin 与 OTA 清单，发布前验证基础包能力与分区兼容性；本地页面增加 Bin 下载，尚未发布新版在线固件。
+- 微读同域完整响应复用 HTTPS 会话，清除旧请求鉴权头与回调；延长建连与无数据等待，临时断网允许重连和有界重试，避免逐章重复握手。真实账号下载和 BLE 设备配对仍需实机验证。
+- 电量显示统一采用 PMU 软件油量表，优先读取带 CRC 与有效位的轻量快照，无有效读数显示未知，资料卡和状态栏使用相同取整。此修订不改变 PMU 电压或保护参数，实际电量误差仍需充放电记录验证。新增蓝牙开关加入配置备份，兼容旧备份。
+
+- 固件 0.3.3-rc78（本地验证版）：微读返回键明确返回文件管理，书籍详情进入独立二级页，不再显示书架同步与退出登录；下载文件使用微信书架书名，不再追加书号。封面始终下载，与正文插图开关分离；封面获取失败会提示重试。微信书架增加跨页多选、全选本页及逐本批量下载，一次最多选择 1024 本，取消或离页会停止队列，已完成文件保留。保留 rc77 的目录字体、可读性与图片空白占位修复。已通过本机编译及主机回归，真实账号下载与实机操作仍待验证，未上传在线刷机页。
+- 固件 0.3.3-rc77（本地验证版）：阅读目录全部使用当前系统字体，返回正文恢复独立的阅读字体；加深目录卡片及按钮边框，增大上页、下页、快翻十页和百分比跳转文字。排版跳过插图前后的空白段落、全角及零宽占位，减少多余空行和空白页，关闭图片时正文正常接续，保留原文定位。保留 rc76 的传书与微读功能；未上传在线刷机页。
+- 固件 0.3.3-rc75（本地验证版）：补齐已确认的首页排版，题头与书架使用相同位置、字号和绘制方式，横线统一在同一高度；继续阅读区整体下移 40 像素，点击范围与封面局部刷新同步调整。近七天图表保持原布局。
+- 固件 0.3.3-rc74（本地验证版）：采用 PR #2，从文件管理打开并保存进度的 TXT/EPUB 自动加入书架；管理页新增「移出书架」，保留文件及阅读进度，再次阅读自动上架。批量按钮改为两行三列；移出状态随 TF 卡配置备份恢复，兼容旧备份。保留 rc73 的 Lucide 图标。已通过产品配置编译与主机回归测试；实机显示和操作待验收。
+
+## 2026-10-05 · DeepSeek Harness
+
+- 统一采用 Lucide 图标：底栏、WiFi、返回键、阅读工具栏、设置、文件管理与电源弹窗使用同一套线条样式；已添加书签显示轮廓加勾。同步图标生成工具与许可声明。
+- 书架收录读过的书：从文件管理打开并保存进度的 TXT/EPUB 可以位于 TF 卡任意位置，返回书架时自动补入；已删除或文件大小已变的记录不补入。管理页新增「移出书架」，只隐藏条目，文件和进度保留，再次打开重新上架；批量按钮改为两行三列。
+
+## 2026-10-05 · Codex
+
+- 固件 0.3.3-rc73（本地验证版）：完整采用 PR #1 的 Lucide 图标方案，尺寸、线宽和灰度与确认预览一致。已通过产品配置编译与主机测试；实机显示待验收。
+- 固件 0.3.3-rc72：修复部分 EPUB 兼容性。
+- 固件 0.3.3-rc71（本地验证版）：关闭书内图片时，排版跳过插图块并让前后正文接续，不再保留插图页或显示「此插图暂无法显示」占位提示；纯插图章节仍沿用跳过逻辑。尚待实机验证，未上传在线刷机页。
+- 固件 0.3.3-rc70（本地验证版）：全屏阅读底部细进度条上移 4 像素，并同步调整独立刷新区域，避免翻页时正文刷新影响进度线。尚待实机视觉验收，未上传在线刷机页。
+- 固件 0.3.3-rc69：修复票根锁屏遇到持续按键中断时可能停在静态画面的问题；浅睡期间定时补查电源键，睡眠连续失败时返回可操作页面。票根仅使用已有封面与元数据缓存，避免锁屏时解析大 EPUB；书架多级目录扫描改为固定栈占用，文件管理递归目录操作的路径与复制缓冲移到外部内存，降低重启风险。配置恢复先校验再替换旧阅读记录，并核对写回的 WiFi 凭据。阅读「刷新设置」增大文字并加深选项边框，字体列表长名称按卡片宽度截断。已通过产品配置构建和主机回归测试；仍待实机验证长时间锁屏、书架进入与配置恢复。详细说明见 [rc69 更新说明](RELEASE_NOTES_0.3.3-rc69.md)。
+- 固件 0.3.3-rc68：将「封面与书脊」样式标为测试版、非正式版本；在线刷机固件汇总 rc59–rc68 的双槽升级、书架收藏、排版、壁纸、备份及 WiFi 内存优化。详细功能、验证范围与注意事项见 [rc68 更新说明](RELEASE_NOTES_0.3.3-rc68.md)。
+- 固件 0.3.3-rc67（本地验证版）：书架封面和书脊收藏标记统一为黑色，深色背景增加贴合图标轮廓的白边。优化 WiFi 在线时打开图书的内存余量：开书前释放可重建的封面与预渲染缓存、按需启动预渲染，并清理损坏 EPUB 索引的临时分配；书架打开失败会显示原因。尚待实机联网上书验收，未上传在线刷机页。
+- 固件 0.3.3-rc66（本地验证版）：TF 卡壁纸按原比例居中裁切铺满锁屏，横图和方图也能在解码器限制内显示；配置备份增加已保存的 WiFi 名称与密码，兼容旧备份，并提示妥善保管 TF 卡。设置页卡片边框与分隔线加深、加粗；所有书架样式都将收藏书排在前面，再按当前排序规则排列。含 rc65 的收藏标记白底修复。尚待实机视觉验收，未上传在线刷机页。
+- 固件 0.3.3-rc65（本地验证版）：书架封面和书脊左上角的收藏标记去除纯白矩形底块，按封面局部灰度使用深色或浅色实心标记；阅读页标题旁的收藏标记保持原有深色样式。尚待实机视觉验收，未上传在线刷机页。
+- 固件 0.3.3-rc64（本地验证版）：保存书签后图标完整填黑；配置备份新增每本书的阅读进度、阅读时长、书签、收藏和自定义书名，继续保存设备资料与状态栏签名，并兼容旧备份。阅读首行缩进不再叠加书籍原文自带的段首空格；修复书架管理页返回键、筛选点击区域与未选书时的操作提示。尚待实机视觉及 TF 卡恢复验收，未上传在线刷机页。
+- 固件 0.3.3-rc63（本地验证版）：新设备的阅读行距默认改为滑块中档 130%，保留已有手动设置；普通阅读正文上缘适当下移、下缘延伸到页脚进度区前，全屏正文上缘增加留白、底部细线移近屏幕下沿，正文与刷新范围同步调整，减少页面下方留空。尚待实机视觉验收，未上传在线刷机页。
+- 固件 0.3.3-rc62（本地验证版）：资料卡头像与圆角遮罩使用同一边界，并自动裁去明显的白色留边；阅读工具栏的书签在保存后显示可辨认的选中态，收藏图标的 V 形尾部完整填充，图标线宽与深浅统一。尚待实机视觉验收，未上传在线刷机页。
+- 固件 0.3.3-rc61（本地验证版）：调整热点与同 WiFi 传书服务的启动顺序和内存占用，修复 `ESP_ERR_HTTPD_TASK` 导致网页无法启动；减少上传时的碎片写入、关闭传书期间的 WiFi 省电，并延长弱信号重连窗口。书架支持扫描 books 内的多级目录、收藏书籍和书脊样式；统一阅读字号与最近阅读排序，增加关闭书内图片选项。改善插画刷新、壁纸填充与灰阶、正文两侧对齐和全屏排版；修复设备名称与状态栏签名保存失败时无提示的问题，并对齐设置资料卡中的电量与编辑文字。尚待实机验收，未上传在线刷机页。
+
+## 2026-10-04 · Codex
+
+- 固件 0.3.3-rc60（本地 OTA 验证版）：作为 TF 卡升级包验证双槽切换、首次启动确认和异常自动回退；功能与 rc59 相同，版本号递增用于确认设备内升级成功。
+- 固件 0.3.3-rc59（本地 OTA 基础版）：16 MB Flash 改为双应用分区，保留原 NVS 与内部存储地址；文件管理新增 TF 卡本地升级，可校验并安装根目录的 `Pico-update.bin`。升级只写空闲槽，完整性校验通过后才切换；新槽首次启动失败会自动回退。首次启用仍需通过电脑完整刷入本基础版。
+- 固件 0.3.3-rc58：修复部分 EPUB 打开时设备自动重启的兼容问题；目录解析的大块临时数据改用外部内存。实机已验证可正常打开并翻页。同步发布 rc51–rc57 的目录、阅读、界面、锁屏及配置备份改进。
+- 固件 0.3.3-rc57（仅本地构建）：设置主页恢复原行高并支持上下滑动，固定状态栏、标题和底栏；资料卡头像居中裁切到圆角遮罩，状态栏签名按屏幕中心对齐，输入法显示中文、英文小写和英文大写切换状态。首页模块边框、分隔线和书架横线加深；无封面书籍的第三种模板换成上深下浅的新样式并重建旧缓存。新增的设备资料、显示、睡眠和阅读选项随 TF 卡配置备份与恢复。
+- 固件 0.3.3-rc56（仅本地构建）：壁纸与票根锁屏均在浅睡十分钟后转深睡；电源菜单可选彻底关机或先浅后深。修复全屏阅读底部进度线；设置新增首页强刷、设备名称与头像、状态栏签名；BOOT 入口移到文件管理。
+- 固件 0.3.3-rc55（仅本地构建）：首页、书架、设置与文件管理切换改用完整 16 级灰阶表，每 3 次切换做一次同屏灰阶整理，保留每 12 次完整清残影；文件管理的卡片边框、列表分隔线与辅助文字加深、加粗或放大。阅读线样式与上下位置移入独立二级菜单；全屏翻页将最底部进度线单独差分，减少反复闪动。补齐 rc54 阅读线位置调节的固件实现。
+- 固件 0.3.3-rc54（仅本地构建）：阅读线加深至双像素，可在字体设置中上下微调位置并随配置备份；全屏阅读扩展正文区域，屏幕底部增加细的全书进度线；字体设置同级卡片统一高度。刷新设置新增每 30 页全刷与「不强制全刷」，保留手动整屏全刷；旧配置仍可恢复。
+- 固件 0.3.3-rc53（仅本地构建）：兼容部分 EPUB 对普通 ZIP 条目设置的扩展标志，修复文件被误判为不支持、无法打开的问题；仍核对压缩方式、文件结构和 CRC，并完成正文读取验证。
+- 固件 0.3.3-rc52（仅本地构建）：TXT 和缺少有效封面的 EPUB 自动生成三种确定性灰阶封面，书架、首页与阅读票根共用同一封面缓存；书内有效封面继续优先显示。延续 rc51 的目录快翻、百分比跳转和 EPUB 目录识别修复。
+- 固件 0.3.3-rc51（仅本地构建）：目录每次可快翻 10 页，新增百分比跳转；目录标题使用更清晰的固定字号。EPUB 的 NCX 目录缺项时补入 NAV 中可用的章节与同文件锚点，重复项保留 NCX 名称，并重建旧目录缓存。修复阅读排版在默认字间距下调节边距时变化不明显的问题。
+- 固件 0.3.3-rc50：阅读正文插图直接使用解码后的灰阶，不再叠加深色增益与系统对比度；翻到插图页时用完整灰阶波形从白底呈现，保留更多暗部层次。系统对比度的首次默认值改为最低档 100%，已有手动保存的设置继续保留。
+- 固件 0.3.3-rc49（并入 rc50）：图片页改用独立的完整灰阶波形，先清除上一画面，再从白底呈现原始灰阶，改善插画与照片的层次。阅读统计中的书签支持多选删除；文件管理长按文件或文件夹可重命名、复制、移动或删除，轻点保持打开；书架“管理”与“导入”入口改为当前设计风格。
+- 固件 0.3.3-rc48（并入 rc50）：阅读正文按整字列居中，改善右侧留白明显更宽的问题；排版设置新增首行缩进 0／1／2／3 字，默认 2 字，并纳入 TF 卡配置备份与恢复。中文右标点与前字同排，避免标点单独出现在下一行开头或悬挂到右侧留白。
+
+## 2026-10-03 · Codex
+
+- 固件 0.3.3-rc47：修复全屏阅读时水波纹翻页误回退为默认效果；退出全屏后整页重绘章节与进度信息。系统设置新增 TF 卡配置备份与恢复，涵盖字体、排版、显示和阅读操作；恢复前校验文件并对缺失的外部资源安全回退。EPUB 清单与章节按实际数量分配内存，扩展到 8,192 项，并优化大书目录索引与打开速度；修复 1,546 章 EPUB 被旧的 1,024 章上限拒绝的问题。
+- 固件 0.3.3-rc46：阅读线改为按字号与行距定位在相邻两行文字之间，并加深虚线和点线，避免线条贴近下方文字；网页刷机页自动读取刷机包版本，修复页面仍显示 rc42 的问题。
+- 固件 0.3.3-rc45：修复首次无 TF 卡开机后插卡不会重新探测的问题；挂载完成时首页、书架和文件管理重新读取目录。拔出已挂载的卡仍须安全关闭旧文件并显式重挂，避免误写。
+- 固件 0.3.3-rc44（预览构建，未刷机）：字体设置主面板只保留字号、阅读字体、晃动翻页和阅读线；边距、行距、段距和字间距集中到「排版设置」二级面板，保留原有数值与拖动行为。
+- 固件 0.3.3-rc43（预览构建，未刷机）：阅读正文轻点中央切换全屏并重新排版；系统设置新增“阅读操作”，可选电源键短按下一页、长按锁屏及全屏隐藏状态栏。字体设置按参考图重排，正文默认首行缩进两字，字间距默认居中并可向两侧微调；新增段距和点击轮换的无／虚线／点线阅读线。
+- 固件 0.3.3-rc42：设置页点击 Pico 设备卡片可进入固件升级页，选择“进入 BOOT 模式”后保存 TF 卡写入并重启到 ROM 下载模式；USB 读卡结束时重新将内部 USB PHY 交给串口/JTAG，供电脑再次识别和刷机。网页刷机指南补充 BOOT 模式入口与使用时机。
+- 固件 0.3.3-rc41：阅读页底部只显示章节名，移除自动补上的章号；首页续读作者右侧不再显示章号。续读书名优先按当前字体实际宽度缩小字号完整显示，保持原布局位置。
+- 固件 0.3.3-rc40：内建系统字体改为稍厚的思源黑体 Medium（500 字重），保持与阅读字体分离；锁屏壁纸选图增加整图预览、上下滑动换图和设定确认；书架样式预览改用无书名的通用封面；TF 卡挂载后按需建立 books、fonts、pictures；目录跳转后立即更新底部章节与百分比；EPUB 大图改用更省内存的渐进缩放解码，改善扉页插图显示。
+- 固件 0.3.3-rc39：EPUB 首次打开目录时检查正文中的“第一章 / 第1章”等独立标题；识别到完整章节序列时优先据此生成目录并精确跳转，识别不完整时只校正对应标题并保留书内目录。过滤普通段落提及的章节字样，结果写入索引，后续直接读取。
+- 固件 0.3.3-rc38：参照 CrossMux 将 EPUB 正文 spine 与 NCX/NAV 目录分开，保留同一 XHTML 中多个章节的标题与锚点；点击目录跳转到对应正文位置，目录当前项按条目高亮。旧 EPUB 目录索引自动重建；书前作者、出版社资料仍从目录中排除。
+- 固件 0.3.3-rc37：首页继续阅读在最近打开的书籍变化后立即更新，复用封面缓存而不重复探测 TF 卡；从首页打开书籍直接显示阅读页，长按中键退出时返回首页。EPUB 目录优先采用书内导航，缺少导航时过滤书前作者、出版社、版权等资料页，阅读进度仍沿用原章节位置。
+- 固件 0.3.3-rc36：阅读页刷新设置新增可持久化的「默认效果 / 水波纹效果」，升级后仍默认沿用原刷新规则。水波纹采用 16 条带、37 相错相 GL16，单次差分计算，沿逻辑翻页方向执行；周期全刷仍覆盖整屏。动画异常时重建前后帧基准，缺少相位或低内存时回退普通 GL16。原先移除方向动画的产品决定改为「默认关闭、用户可选」，阅读字体设置面板保持原样。
+- 固件 0.3.3-rc35：放大状态栏时间、WiFi、电量百分比与电池图标，并统一垂直对齐；文件管理根目录的文件夹名称与图标居中对齐。
+- 固件 0.3.3-rc34：实机验证发现网页上传书籍后写入阅读进度时会触发重启；传输服务任务栈改回内部内存，并在同 WiFi 模式下继续验证上传与目录操作。
+- 固件 0.3.3-rc33：热点与同 WiFi 传书共用新版 TF 卡文件管理网页；新增手机锁屏壁纸裁剪，支持拖动位置与缩放，按 Pico 684 × 1216 像素导出 JPG、上传到 pictures 后自动设为壁纸锁屏。目录重命名后同步当前传书目录，防止本次会话的后续上传写向旧路径。
+
+## 2026-10-02 · Codex
+
+- 固件 0.3.3-rc32：热点传书网页改为 TF 卡目录浏览与管理，可逐层查看根目录、分页、新建文件夹、重命名、复制和删除文件或文件夹；书籍、字体、图片分别上传到 books、fonts、pictures。移除网页的图片对比等多余入口，热点限制单设备接入，传输时暂停设备页面交互与定时刷新。文件改名或删除时同步维护阅读进度、字体、壁纸和自选目录设置。
+- 固件 0.3.3-rc31：USB 读卡页重排连接状态、存放目录与安全弹出步骤；修复连续写入时缓冲区覆盖和扇区偏移丢失，写卡失败会向电脑返回错误，USB 模式使用更保守的 TF 时钟。
+- 固件 0.3.3-rc30：阅读设置刷新图标换成提供的图样，与其他工具图标统一中心和灰度；阅读页放大书名、章节及进度文字；状态栏文字固定字号并与 WiFi、电池对齐；首页统一细节左边距、七日标题基线并加深图表分隔线。
+- 固件 0.3.3-rc29：首页按布局编辑器保存的画面重排，移除继续阅读白色卡片与深色按钮底框；封面、书名、作者、章节、进度和七日阅读标题对齐新坐标，柱形图继续显示真实阅读记录。
+- 固件 0.3.3-rc28：首页改为继续阅读卡片与近七天阅读时长圆角柱形图，读取已有的每日阅读记录；首页只加载当前阅读封面，避免多本封面逐一刷新。状态栏的时间、WiFi、电量百分比和电池统一垂直中心线。
+- 固件 0.3.3-rc27：WiFi/热点传书启动前释放字形缓存；成功的 WiFi 配置请求正常返回，重复文件等请求错误不再把无线服务显示为故障。上传中禁止切页打断文件。USB 读卡禁用主机弹出时的自动二次挂载，先断开主机并排空写入再退出；TF 卡卸载失败不再交给电脑接管。USB 传输缓冲区由 512 字节增至 8192 字节，入口先显示准备页。
+- 固件 0.3.3-rc26：阅读目录改由独立页面模块绘制和处理点击，不再复用书架列表与旧局部翻页逻辑。目录使用新版浅灰底与白色圆角章节卡片；章节标题合并换行和异常空白、限制为单行并在超宽时截断，每页 7 节。增加显式翻页入口和章节选中态，目录长按中键不会进入旧示例菜单。
+- 固件 0.3.3-rc25：阅读设置的刷新图标按预览改为清晰的粗线回环；阅读页底部进度条与章节、页码信息铺满内容宽度。系统默认使用内建思源黑体，移除“默认无衬线”名称；阅读和系统字体选择后返回设置页仍显示中文字体名称。首页题头改为“首页”，坐标与字号对齐书架页。
+- 固件 0.3.3-rc24：阅读设置底栏第四项新增刷新设置，可手动整屏全刷，或选择每阅读 5、10、15 页整屏清残影一次，默认 15 页。文件管理首页直接提供 WiFi 传书、热点传书和 USB 读卡入口；书架「导入」进入文件管理，传输结束后返回文件管理并省去额外白屏。
+- 固件 0.3.3-rc23：阅读翻页和周期清残影仅更新正文与底部进度区，顶部状态栏和书名保持稳定；进度条下方的章节信息从 15 像素增至 20 像素，并独立保留右侧页码与全书进度。
+- 固件 0.3.3-rc22：联网后对时直接复用已连接的 WiFi，并在写入设备时钟后核对结果；配网列表和遗忘确认页的底栏恢复切换功能。首次刷入本版时将亚克力书架设为显示样式，此后保留手动选择。移除阅读翻页动画及其设置，字体设置恢复紧凑面板，普通翻页继续使用单次灰阶刷新。阅读目录改为独立单行卡片，标题测量与绘制使用相同字体以避免重叠；EPUB 3 目录兼容更多标记格式，目录缺失的正文标题在关闭书籍时写回索引。
+- 固件 0.3.3-rc21：设置页和联网状态栏改用 UX v17 预览图同源的 WiFi 灰阶像素图形，保留圆润的双段弧线与水滴形底部；状态栏的图标位置和电池比例同步对齐参考稿。
+- 固件 0.3.3-rc20：优化大 EPUB 的 ZIP 目录与流式解压，单个无关大资源不再阻止整本书打开；目录缺项时按需读取章节正文标题。阅读排版支持书内外部 CSS 的有界子集，修正中文左标点折行后的对齐宽度；插图识别补充惰性加载、SVG 图片标签与单图 SVG 包装，并解码图片路径中的实体。
+- 固件 0.3.3-rc19：移除微信读书入口和在线阅读模块；底栏第四项改为“设置”，点击后直接进入设置页。同时移除尚未实现的蓝牙设置与 Calibre 传输入口。首次启动新版固件时清除旧版保存的微信读书登录凭据，保留本地书籍。
+
+## 2026-10-01 · Codex
+
+- 固件 0.3.3-rc18：撤销整页 8 相短 DU；系统页面切换改为 30 相 8 灰阶差分 GL16，每 12 次同步做一次完整 GC16 清残影，降低残影且不做延迟二次刷新。
+
+- 固件 0.3.3-rc17：文件首页改为真实 TF 根目录卡片列表并直接提供文件操作；系统页面切换改为 8 相差分 DU，累计 20 次同步做一次 GC16 清残影，取消每次导航的明显灰阶整页刷新。
+- 固件 0.3.3-rc16：把参考稿 S03 文件操作面板、S05 传输方式选择与 S06 浏览器二维码传输页写入固件；提高阅读字体选择、统计、书签和最近阅读面板的文字、边框与选中状态对比度，并统一状态栏 WiFi 图标。
+- 固件 0.3.3-rc15：连续 DU 翻页由 8 段 6 相位缩短为 6 段 5 相位，减少约四分之一动画扫描；定稿阶段对变化像素使用加强差分 GL16，压实新文字并继续擦白旧文字，改善翻页后的新旧页叠影。
+- 固件 0.3.3-rc14：区分默认翻页与翻页动画。默认翻页保持单次 GL16；动画档复用示例工程连续 DU 状态机，以 8 段方向性边界同步擦除旧页、写入新页，下一页从右向左、上一页从左向右，最后只补抗锯齿与插图灰阶，避免再次整页刷新。
+- 固件 0.3.3-rc13：阅读翻页改为单次 GL16 灰阶差分刷新。下一页一次提交，页眉、正文、插画和页脚在同一遍刷新中完成，不再横向分段擦入；普通缓存未命中也使用 GL16，仍每 14 页用 GC16 清理残影。
+- 固件 0.3.3-rc12：降低首页、书架、文件管理和应用之间切换时的刷新存在感。普通切换保持差分 GL16；局部按钮、菜单、封面和弹窗刷新不再累计整屏清残影次数，系统页清理周期延长到 40 次整页切换，减少频繁黑白闪动。阅读页仍独立保持每 14 页清残影。
+- 固件 0.3.3-rc11：参考 KOReader 软件擦入动画重做阅读翻页。下一页从右向左、上一页从左向右；中间帧使用灰阶窄条刷新，末帧以 GL16 定稿整页，清除原快速 DU 动画在文字和抗锯齿边缘留下的大量残影。
+- 固件 0.3.3-rc10：阅读页底部章节与进度信息改用独立固定字号，开合阅读设置后不再随正文或系统字号变化；字号略微缩小，并显示“第几章 + 章节名”。同时加入阅读翻页动画选项、图像灰阶抖动、票根锁屏封面背景、WiFi 连接驻留、目录排版和 EPUB 插画兼容修复，并减少常规系统页面的整屏刷新。
+- 固件 0.3.3-rc9：修复阅读字体滑块拖动时白块遮住滑轨；扩大滑块局部刷新范围并改用灰阶刷新。首页封面、书架分页和目录分页改为内容区局部更新，减少整屏刷新。目录页移除旧底部入口并重新排版。修复微信读书 HTTPS 登录链接被二维码校验错误拒绝。书籍名称统一取文件名，文件管理新增打开、复制、重命名和删除操作，连接 WiFi 时状态栏显示无线标识。
+- 固件 0.3.3-rc8：修复 WiFi 扫描出现 `ESP_ERR_NO_MEM`。扫描前释放可重建的字形缓存，扫描结果移至外部内存并限制为界面实际可显示的 16 个网络；调低单用户传书不需要的无线缓冲预留，并增加失败阶段和剩余内存诊断。
+- 固件 0.3.3-rc7：重写设备端 WiFi 扫描生命周期。扫描建立标准 STA 接口，兼容目标机的 remote/hosted WiFi 后端；一次性读取并去重结果，短暂状态错误自动重试，覆盖中国 2.4 GHz 信道 1–13。设置入口直接进入独立配网页，开放网络可直接连接，失败状态显示原因并提供重试。
+- 固件 0.3.3-rc5：重构设备端 WiFi 配网页面并修复无线模块重复初始化后失效；设置入口直接进入配网，连接状态与已保存网络可正常更新。
+- 首页固定使用六本书的基础网格，不再跟随个性书架；封面集中解码后一次刷新，避免每出现一本书就整屏闪烁。书架样式精简为深色书轨、亚克力挡板和半透明书袋三种。
+- 系统设置新增全局对比度；字号、边距、行距支持端点逐级微调，修复最小行距反而增大的问题。
+- 长按电源键显示双圆形按钮的重启／关机菜单；关机执行主机彻底断电，短按继续进入所选票根或壁纸锁屏。
+- 首页恢复为六本书与继续阅读布局，书名保持单行且最多八个字，并同步展示所选书架效果；书架页取消书名，数量与页码移到底部中央。TF 目录补充文件夹、文件图形和容量信息，WiFi 传书页移除重复的 USB 入口，设置中的 WiFi 直接进入配网。应用图标加粗到适合墨水屏的清晰线宽，字体、书架与锁屏选项统一使用浅灰选中态。
+- 底栏应用四宫格下移以统一视觉中心；应用页保留圆角外框，内部微信读书与设置改用和底栏一致的极简细线图标。
+- 书架标题右侧新增「管理」并与「导入」并排，直接进入批量管理；应用页移除重复的图片、传输和图书管理入口，仅保留微信读书与设置。
+- 系统二级页面共用的圆形返回键缩小，保留原触控热区，兼顾视觉比例和点击容错。
+- 修复 TF 卡全目录浏览的分类计数越界；文件夹使用独立探测并优先排序，进入根目录后可以继续逐层浏览。
+- 阅读设置补齐实际交互：字号、边距和行距可拖动并在松手后统一重排；阅读字体超过九个时可上下翻页；阅读统计的“阅读明细”和“最近30天”进入真实数据页面。
+- 阅读页顶部恢复显示当前书名并移除圆形返回键及其隐藏热区；修正新版阅读工具栏仍误用旧按钮编号的问题，目录、书签、阅读统计和字体设置分别执行对应功能。
+- 字体设置面板补齐可点击的字号、页边距、行距、阅读字体和晃动翻页控制，弹层使用各自命中区域，不再与底部工具栏重叠。
+- 系统字体与阅读正文字体完全分离；首次进入产品界面前再次接管已挂载的 TF 系统字体，书名和系统控件不再跟随阅读字体。字体列表用浅灰底标记当前项。
+- 首页与书架按内容版本、目录和 TF 挂载状态缓存扫描结果与封面，仅在导入、删除、换目录或存储状态变化后重扫。
+- EPUB 插图改为读取文件签名识别 JPEG/PNG，兼容扩展名缺失或错误的图片；提高图片容量上限和浅色插画对比度。
+- 阅读翻页取消延迟二次刷新；系统页面切换改用灰阶页刷，传输状态只刷新局部区域，减少整屏闪烁和等待。
+- 状态栏使用圆角电池、左侧百分比、充电闪电和满电填充；应用页改为四列圆角图标，设置与各二级页统一返回、卡片间距及更清晰的系统字号。
+- 文件管理显示 TF 目录并支持自选书籍/字体目录；USB 读卡直接进入挂载流程。票根与自选图片归入锁屏样式。
+- 修复继续阅读书名尾部 `=This`、长书名截断、书架透明挡板辨识度及旧示例页面残留入口。
+
+## 2026-09-30 · Codex
+
+- 书架新增第四种半透明书袋样式，样式选择页使用四种实际书架首行的缩略图；票根锁屏在阅读中保留当前正文为背景，其他页面使用灰阶斜格纹。状态栏在充电时显示闪电标识。
+- 应用页增加微信读书入口，目前支持已保存 WiFi 下的扫码登录、云端书架同步和退出登录；书籍缓存与本机阅读仍在开发中，尚未作为完整功能交付。
+- 系统页面三颗触控键改为返回／首页／返回；阅读正文继续使用翻页与中键设置。系统小字约放大 1.2 倍，阅读正文大小不变。文字边缘、图标与分割线加深；书籍封面、插图、图片和票根壁纸提高灰阶对比度。
+- 首页改为紧凑的继续阅读卡、近七天实测阅读时长与柱状图、书架摘要和四本最近阅读；书架提供默认网格、深色书轨、亚克力挡板三种样式，选项保存在设备上。
+- 应用页改为浅色九宫格，框线加深并换用 Pico 灰阶图标；设置页改为卡片分组和较醒目的灰色图标，字号与间距集中在一个设置页。
+- 亚克力书架挡板增加灰阶模糊和更明显的半透明覆盖，样式选择页共用同一绘制效果。状态栏使用圆角电池并在左侧显示百分比，系统界面字号略增。
+- 书架切页后复用已扫描书目和封面，在传书、USB 退出或存储状态变化后重扫。重新生成内建字体子集，补齐当前界面文字；移除打开书籍时底部临时加载提示。
+- 产品界面统一使用 Pico 名称。书架仅显示导入书籍，每页九本。底栏第四项改为应用，集中放置图片、传输、图书管理和设置。
+- 本机书名编辑加入可点击定位、左右移动的插入光标，可在书名中间插入或删除文字。设置改为分组列表，加入 WiFi、蓝牙和日期时间入口。
+- 手动设时与 WiFi 对时写入 PMU；开机读取 PMU 时钟恢复系统时间。WiFi 对时使用已保存网络，完成后关闭无线连接。
+
+## 2026-09-29 · Codex
+
+- 系统界面改用独立内建的 Noto Sans SC Regular 子集（OFL-1.1）；阅读正文仍可选择其他字体。修复书架设置入口的残留重绘与旧设置页代码。
+- 设置页增加本机日期时间编辑（北京时间 UTC+8），保存后同步系统时间和 PMU；EPUB 章节题头使用目录标题，不再把正文前置引言当作章节名。
+- 首页封面缓存在 PSRAM，返回首页时按路径、文件大小与修改时间复用，书籍顺序变化也可复用。
+- 底部四栏图标改为细线风格：首页房屋、书架斜立书脊、文件夹与设置宫格。
+- 首页阅读热力图改为最近 30 个自然日，使用实际阅读时长；设备时钟未同步时不显示虚构的日期数据。
+- 加入首页、书架、文件管理、设置四栏导航；文件页集中书籍、图片、字体和 USB/Wi-Fi 传输入口。跨页面与进入阅读时执行整屏刷新。
+- EPUB 章节第一页单独显示章节题头；书名改为本机拼音候选输入与保存，无需打开网页。阅读字体入口直接进入 TF 卡字体目录。
+- 预览图使用苹方；固件保留可分发的无衬线后备字体，支持从 TF 卡加载兼容 TTF/OTF 文件，未随固件分发苹果字体。
+- 固件 0.3.2：书架封面下只显示书名。首次打开书架或滑到未缓存的页面时先显示书架，再逐本补齐封面；生成的缩略图保存在 TF 卡隐藏目录，后续开机和翻页直接读取，换书后自动更新。
+- 修正开机时误导性的「初始化内置存储」提示；既有内置分区仍按正常流程挂载，不会在每次开机格式化。字号和间距重排只测量字宽，减少额外的进度保存和字号二次刷屏；间距变化先快速刷新，闲置后整理灰阶。
+
+## 2026-09-28 · Codex
+
+- 固件 0.3.1：阅读页进度条改为圆角并移除外伸章节刻度；书架继续阅读区增加最近一本的封面、章节与页码信息。
+- 票根锁屏上下使用裁纸缺口，背景由最近阅读的 EPUB 封面生成灰阶壁纸；无内嵌封面的书使用书名占位背景。
+
+- 固件 0.3.0：书架移除底部翻页与菜单，改用左右滑动；顶部「设置」整合图书管理、图片和传输。
+- 图书详情加入手动编辑书名入口；WiFi 网页可编辑 `book`、`books` 和内置图书的显示书名，独立保存而不改 EPUB 或进度。
+- 票根锁屏显示最近阅读书籍、封面、进度和实测阅读统计；WiFi 网页同步设备时间以启用今日统计，时钟无效时明确提示。
+
+- 主菜单收敛为书架、图片显示、传输；书架优先读取 EPUB 的书名、作者，显示封面和继续阅读入口，进入书架不再自动跳到正文。
+- EPUB 正文支持 JPEG/PNG 图片独立成页；阅读设置增加字号、行距、段距和扩展字体。普通翻页改为快速差分，闲置后灰阶整理，周期整屏清残影。
+- 传输页增加 USB 读卡模式，安全弹出后恢复 TF 卡本机挂载；USB 活跃时暂停本机卡访问和锁屏。
+- 固件版本 0.2.0 已使用 DIO/80 MHz 写入 ESP32-S3，哈希验证通过，启动日志确认 SD 卡挂载与书架扫描。
+- 增加图片对比页：内置灰阶测试图，读取 TF 卡 `pictures`/`images` 下的 JPG/PNG，并通过传书网页上传图片；图片切换时整屏灰阶刷新。
+- 阅读中键单击进入页面设置，长按回书架；阅读页移除右下角返回图标；书架与字体列表忽略 macOS 的隐藏辅助文件。
+- 书架同时扫描 TF 卡根目录的 `book` 与 `books` 文件夹，兼容已放入单数目录的书籍，传书仍保存到 `books`。
+- 图书书架改为每页六本的封面网格；自动从 EPUB 2/3 的 OPF 声明提取 JPEG/PNG 封面，生成电子墨水屏灰阶缩略图，缺失时显示书名占位封面。
+- 阅读工具栏加入宋体、黑体、楷体快捷切换，字体从 TF 卡 `fonts` 目录读取；附带三种开源中文字体。
+- 提供合并固件镜像与基于 ESP Web Tools 的本地 Chrome 刷机页面。
+
+## 2026-09-27 · UNSaWEN
+
+- 图书阅读：支持 TF 卡或内置存储的 UTF-8/GBK TXT 与纯文本 EPUB，目录、逐书续读、字号、手势翻页及默认关闭的实验晃动翻页。
+  Read UTF-8/GBK TXT and text-only EPUB from TF or internal storage, with a TOC, per-book resume, font sizes, gestures and optional experimental shake-to-turn.
+- 图书管理：增加拼音/首字母/英文搜索、来源筛选、名称/最近阅读排序、详情，以及分别确认的单本/批量删除和清进度。
+  Add pinyin/initials/English search, source filters, name/recent sorting, details and separately confirmed single/batch deletion or progress reset.
+- WiFi 传书：支持设备热点和已有网络、触屏/网页配网、连接与网址二维码；网页管理当前存储，支持确认替换、取消和重试；停止后返回进入前的位置。
+  Transfer over the device hotspot or an existing network, with touchscreen/web provisioning and connection/URL QR codes. Manage current storage in the browser, confirm replacements, cancel or retry uploads, and return to the entry location on stop.
+- 可靠性：处理保存失败与部分成功重试、中文文件名和覆盖中断恢复；修复显示欠载后相位队列残留导致的死锁；检测 TF 失效后停止相关消费者并回退字体，插回后需显式重挂。
+  Handle save failures, partial-operation retries, Chinese filenames and interrupted replacements. Fix a display queue deadlock after underrun; stop affected consumers and fall back fonts on TF loss, requiring explicit remount after reinsertion.

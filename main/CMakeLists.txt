@@ -1,0 +1,114 @@
+# Pico derivative 2026-10-05: register the bounded Markdown parser component.
+# 中文：注册有界Markdown解析器；原有硬件组件不变。
+set(main_requires
+    pico_weread
+    jpegdec
+    app_update
+    mbedtls
+    md4c
+    espressif__cjson
+    espressif__expat
+    esp_http_client
+    read_pico
+    read_pico_transfer
+    read_pico_search
+    espressif__qrcode
+    espressif__esp_jpeg
+    espressif__libpng
+    espressif__zlib
+    espressif__esp_tinyusb
+    continuous_du
+    e0470_epaper_waveform
+    e0470_page_turn
+    read_pico_pmu
+    fatfs
+    wear_levelling
+    bootloader_support
+    spi_flash
+    heap
+    nvs_flash
+    esp_hw_support
+    esp_rom
+    esp_driver_gpio
+    esp_driver_usb_serial_jtag
+    esp_app_format
+)
+idf_component_register(
+    SRCS
+        "app_main.c"
+        "ota_update.c"
+        "display.c"
+        "sleep.c"
+        "settings.c"
+        "app/app_loop.c"
+        "app/app_registry.c"
+        "ui/ui_kit.c"
+        "ui/ui_text_input.c"
+        "ui/ui_pinyin.c"
+        "ui/ui_gesture.c"
+        "ui/ui_power_dialog.c"
+        "ui/ui_wifi_qr.c"
+        "ui/datamatrix.c"
+        "ui/ui_menu.c"
+        "ui/ui_nav.c"
+        "ui/ui_lunar.c"
+        "ui/ui_banner.c"
+        "ui/ui_nav_icons.c"
+        "ui/ui_image_dither.c"
+        "ui/ui_wallpaper.c"
+        "apps/app_book.c"
+        "apps/book_toc.c"
+        "apps/app_dashboard.c"
+        "apps/app_files.c"
+        "apps/file_tree.c"
+        "apps/app_device_settings.c"
+        "apps/app_image.c"
+        "apps/app_transfer.c"
+        "apps/app_cloud.c"
+        "apps/app_weread.c"
+        "apps/usb_storage.c"
+        "book/book_store.c"
+        "book/book_progress.c"
+        "book/book_history_backup.c"
+        "book/content_library.c"
+        "book/book_title.c"
+        "book/book_ticket.c"
+        "book/book_source.c"
+        "book/book_index_cache.c"
+        "book/book_txt.c"
+        "book/book_epub.c"
+        "book/book_cover.c"
+        "book/book_cover_auto.c"
+        "book/zip_reader.c"
+        "book/html_text.c"
+        "book/markdown_text.c"
+        "book/book_markdown.c"
+        "book/document_image.c"
+        "book/document_store.c"
+        "cloud/cloud_protocol.c"
+        "cloud/cloud_dav.c"
+        "cloud/cloud_sync.c"
+        "book/book_layout.c"
+        "book/gbk.c"
+        "font/ttf_font.c"
+        "font/app_font_context.c"
+        "font/ui_font.c"
+        "factory/pmu_selftest.c"
+        "factory/vcom_setup.c"
+    REQUIRES ${main_requires}
+    INCLUDE_DIRS "." "app" "apps" "font" "ui" "factory" "book" "cloud"
+    EMBED_FILES
+        "assets/lock_4bpp.bin"
+        "assets/loading_4bpp.bin"
+        "assets/builtin.ttf"
+        "assets/reading.md"
+        "assets/display-test.png"
+)
+
+# 网络与文档存储逻辑节约程序空间，渲染器和BSP保留原性能选项。
+# Size-optimize network/document storage logic; keep renderer and BSP performance options.
+set_source_files_properties(
+    "cloud/cloud_protocol.c" "cloud/cloud_dav.c" "cloud/cloud_sync.c"
+    "book/document_store.c" "book/markdown_text.c" "book/book_markdown.c"
+    PROPERTIES COMPILE_OPTIONS "-Os"
+)

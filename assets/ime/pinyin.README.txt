@@ -1,0 +1,8 @@
+IF Edition offline Pinyin phrase dictionary
+Source: pypinyin 0.55.0, MIT
+https://github.com/mozillazg/python-pinyin
+Wheel SHA256: d53b1e8ad2cdb815fb2cb604ed3123372f5a28c6f447571244aca36fc62a286f
+46111 phrases, 2951120 bytes.
+Copy pinyin.ifdict and its license to TF card /system/ime/.
+2–4 character exact full-pinyin phrases; v represents ü. No sentence prediction.
+Missing dictionary: built-in character input remains available.

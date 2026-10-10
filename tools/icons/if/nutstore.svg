@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 坚果云原图的核心坚果轮廓重绘；移除云 / Redrawn core nut contour, without the cloud -->
+  <path d="M8.4 3.5C6.2 5.8 4.6 10.3 4.2 15.4c-.3 4.1 2.3 5.8 6.2 5.1 5.1-.8 9.4-4.3 9.4-8.1 0-3.5-2-6.6-5.3-8.3-2-1-4.4-1.4-6.1-.6Z" />
+  <path d="M8.4 3.5c4.2 2.1 8.3 6.7 10.2 11.9M17.4 5.9c.9-1.8 2.2-2.2 3.3-1.7" />
+</svg>
