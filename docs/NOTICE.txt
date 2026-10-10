@@ -1,4 +1,4 @@
-Pico Reader IF Edition 0.3.3-rc83-if.7
+Pico Reader IF Edition 0.3.3-rc83-if.8
 基于 Pico Reader 0.3.3-rc83 (9a1b85d13a6dd0fdce8531f82a63a6cbc8ef928f)，选择性采用 rc88 阅读改进。
 原作者项目主页 https://wegooo-cell.github.io/read-pico-reader/
 原作者源码 https://github.com/wegooo-cell/read-pico-reader
@@ -6,6 +6,6 @@ Pico Reader IF Edition 0.3.3-rc83-if.7
 应用代码主体采用 Apache-2.0；epdiy 使用 LGPL-3.0-or-later；字体、词库等适用各自许可。
 完整许可文本见 licenses/。
 IF项目源码 https://github.com/yiifanrecyclable/PicoReader-ifEdition
-对应版本源码及构建/重新链接说明 https://github.com/yiifanrecyclable/PicoReader-ifEdition/tree/0.3.3-rc83-if.7
-对应版本源码下载 https://github.com/yiifanrecyclable/PicoReader-ifEdition/archive/refs/tags/0.3.3-rc83-if.7.zip
-版本页面 https://github.com/yiifanrecyclable/PicoReader-ifEdition/releases/tag/0.3.3-rc83-if.7
+对应版本源码及构建/重新链接说明 https://github.com/yiifanrecyclable/PicoReader-ifEdition/tree/0.3.3-rc83-if.8
+对应版本源码下载 https://github.com/yiifanrecyclable/PicoReader-ifEdition/archive/refs/tags/0.3.3-rc83-if.8.zip
+版本页面 https://github.com/yiifanrecyclable/PicoReader-ifEdition/releases/tag/0.3.3-rc83-if.8

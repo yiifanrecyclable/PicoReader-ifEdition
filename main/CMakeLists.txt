@@ -89,6 +89,7 @@ idf_component_register(
         "cloud/cloud_dav.c"
         "cloud/cloud_sync.c"
         "book/book_layout.c"
+        "book/markdown_table.c"
         "book/gbk.c"
         "font/ttf_font.c"
         "font/app_font_context.c"

@@ -68,3 +68,5 @@ size_t book_layout_page_start_offset(size_t page);
 
 /// 文档标题字号与样式借用至下一次设置；false 恢复图书行为。/ Borrow document heading sizes/style runs until reset; false restores book behavior.
 void book_layout_set_markdown(bool enabled, const uint8_t headings[3], const text_style_t *styles, size_t count);
+/// 借用 Markdown 单元格至下一次设置；正文偏移不变。/ Borrow Markdown cells until reset, preserving text offsets.
+void book_layout_set_markdown_tables(const markdown_cell_t *cells, size_t count);

@@ -46,3 +46,28 @@ WiFi/热点网页的「上传文档」固定将非空`.md`存入`markdown/`，�
 `PYTHONDONTWRITEBYTECODE=1 python3 tools/test_content_library.py` 使用独立临时卡验证实际C页面手势、两页隔离、名称/进度/日期/最近排序、单篇置顶与旧星标兼容、独立搜索、浮动卡片背景一致性、图书置顶持久保存、居中分页与跨页勾选、确认取消、进度清除、共享图片保护及删除失败重试。`tools/book_history_backup_host_test.c`验证排序偏好与首次时间随阅读资料备份恢复。测试不使用真实账号、密码或项目TF卡。
 
 English: Books and documents have independent Manage/Sort controls. Four sort modes and direction persist with settings history backup; both tabs share the same sort layout, with favorite/star UI and filters retired. Both tabs share floating detail cards. Both tabs retain single-item pins; legacy favorite/star records and filter bits remain backup-compatible without decorating, reordering or hiding content. Both management pages share layout and independent search. Batch document deletion uses ownership-aware cleanup, retains shared assets, and leaves failed items available for retry during the current boot. Book dates start at first collection by this build; historical import dates cannot be reconstructed.
+
+## Markdown 表格 / Markdown tables
+
+if.8支持普通Markdown管道表格（表头、分隔行和内容行）。例如：
+
+```markdown
+| 项目 | 说明 | 状态 |
+| :--- | :---: | ---: |
+| 阅读 | **粗体**、*斜体*和==高亮== | 已支持 |
+```
+
+能容纳的表格以细线网格显示，表头浅灰加粗，各列支持左/中/右对齐，长文字自动换行。沿用文档正文的字体、字号与行距；不另设表格字号。长表分页后重复表头，单行超过一页时继续显示剩余内容。列宽不足以清晰阅读或超过8列时，自动纵向显示列名和对应内容。超长列名完整显示一次，重复的列名最多两行。表内图片显示说明文字；表格外的图片阅读保持原有方式。不解释HTML表格、嵌套表格或合并单元格。
+
+Use standard Markdown pipe tables. Readable tables use thin grids, gray bold headers, column alignment and wrapping at body typography. Long tables repeat headers across pages, including continuation of oversized rows. Too-narrow or more-than-eight-column tables stack labels and values. Oversized labels appear once in full; repeated labels use at most two lines. Images inside cells show descriptions; images outside tables retain their normal behavior. Raw HTML tables, nested tables and merged cells are outside this subset.
+
+翻页、书签和续读仍使用原文字节位置；更换字体或字号会重新排版。普通图书不走此表格绘制路径。维护回归命令：
+
+Pagination, bookmarks and resume retain normalized text offsets; changing typography rebuilds the layout. Ordinary books do not use this table renderer. Maintenance checks:
+
+```sh
+bash tools/run_markdown_host_tests.sh
+bash tools/run_markdown_table_tests.sh
+SANITIZE=1 bash tools/simulator/build.sh
+ASAN_OPTIONS=detect_leaks=0 python3 tools/test_markdown_tables.py
+```

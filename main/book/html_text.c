@@ -250,6 +250,7 @@ void html_text_free(html_text_t* text) {
     if (!text) return;
     free(text->utf8);
     free(text->blocks);
+    free(text->cells);
     free(text->styles);
     for (size_t i = 0; i < text->image_count; ++i) free(text->images[i]);
     free(text->images);

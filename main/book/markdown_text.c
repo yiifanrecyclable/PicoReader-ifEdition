@@ -23,7 +23,9 @@ typedef struct {
     const char *source;
     size_t source_len;
     unsigned depth, list_depth, quote_depth, image_count;
-    unsigned table_column;
+    unsigned table_column, table_id, table_columns;
+    size_t cell_capacity, row_cell;
+    bool table_header, in_cell, table_image;
     unsigned ordered[MARKDOWN_DEPTH_MAX], counters[MARKDOWN_DEPTH_MAX];
     bool open, heading, code, in_image;
     uint8_t heading_level;
@@ -117,6 +119,10 @@ static int flush(writer_t *w) {
                                               .heading = w->heading,
                                               .literal = w->code || w->list_depth || w->quote_depth,
                                               .heading_level = w->heading_level,
+                                              .table_id = w->table_columns ? w->table_id : 0,
+                                              .table_columns = w->table_columns,
+                                              .table_cell = w->row_cell,
+                                              .table_header = w->table_header,
                                               .image = w->in_image ? w->image_index : -1};
     return 0;
 }
@@ -193,15 +199,34 @@ static int enter_block(MD_BLOCKTYPE type, void *detail, void *ctx) {
         if (begin(w, false) || append(w, "---", 3) || flush(w))
             return 1;
         break;
+    case MD_BLOCK_TABLE:
+        if (flush(w)) return 1;
+        if (++w->table_id > UINT16_MAX) { w->error = ESP_ERR_INVALID_SIZE; return 1; }
+        w->table_columns = ((MD_BLOCK_TABLE_DETAIL *)detail)->col_count;
+        if (w->table_columns > UINT16_MAX) { w->error = ESP_ERR_INVALID_SIZE; return 1; }
+        break;
     case MD_BLOCK_TR:
         w->table_column = 0;
+        w->row_cell = w->text.cell_count;
         if (begin(w, false))
             return 1;
         break;
     case MD_BLOCK_TH:
     case MD_BLOCK_TD:
+        w->table_header = type == MD_BLOCK_TH;
         if (w->table_column++ && append(w, " | ", 3))
             return 1;
+        if (w->text.cell_count >= 65536) { w->error = ESP_ERR_INVALID_SIZE; return 1; }
+        if (w->text.cell_count == w->cell_capacity) {
+            size_t cap = w->cell_capacity ? w->cell_capacity * 2 : 32;
+            markdown_cell_t *cells = heap_caps_realloc(w->text.cells, cap * sizeof(*cells), CAPS);
+            if (!cells) { w->error = ESP_ERR_NO_MEM; return 1; }
+            w->text.cells = cells; w->cell_capacity = cap;
+        }
+        MD_ALIGN a = ((MD_BLOCK_TD_DETAIL *)detail)->align;
+        w->text.cells[w->text.cell_count++] = (markdown_cell_t){.offset = w->text.len,
+            .align = a == MD_ALIGN_CENTER ? 1 : a == MD_ALIGN_RIGHT ? 2 : 0};
+        w->in_cell = true;
         break;
     default:
         break;
@@ -213,6 +238,15 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *ctx) {
     writer_t *w = ctx;
     int err = 0;
     switch (type) {
+    case MD_BLOCK_TABLE:
+        err = flush(w); w->table_columns = 0; w->table_header = false;
+        break;
+    case MD_BLOCK_TH:
+    case MD_BLOCK_TD:
+        w->text.cells[w->text.cell_count-1].len = w->text.len - w->text.cells[w->text.cell_count-1].offset;
+        if (w->table_columns == 1 && w->text.len == w->start && append(w, " ", 1)) return 1;
+        w->in_cell = false;
+        break;
     case MD_BLOCK_DOC:
     case MD_BLOCK_P:
     case MD_BLOCK_H:
@@ -251,6 +285,7 @@ static int enter_span(MD_SPANTYPE type, void *detail, void *ctx) {
     if (type == MD_SPAN_STRONG) ++w->strong;
     if (type == MD_SPAN_EM) ++w->emphasis;
     if (type == MD_SPAN_IMG) {
+        if (w->in_cell) { w->table_image = true; return append(w, "[图片: ", strlen("[图片: ")); }
         MD_SPAN_IMG_DETAIL *image = detail;
         if (++w->image_count > MARKDOWN_IMAGE_MAX || image->src.size > MARKDOWN_PATH_MAX) {
             w->error = ESP_ERR_INVALID_SIZE;
@@ -288,13 +323,14 @@ static int leave_span(MD_SPANTYPE type, void *detail, void *ctx) {
     if (type == MD_SPAN_EM && w->emphasis) --w->emphasis;
     if (type != MD_SPAN_IMG)
         return 0;
+    if (w->table_image) { w->table_image = false; return append(w, "]", 1); }
     int result = append(w, "]", 1) || flush(w);
     w->in_image = false;
     return result;
 }
 static int on_text(MD_TEXTTYPE type, const MD_CHAR *s, MD_SIZE len, void *ctx) {
     writer_t *w = ctx;
-    w->protected_text = type == MD_TEXT_CODE || type == MD_TEXT_ENTITY;
+    w->protected_text = type == MD_TEXT_CODE || type == MD_TEXT_ENTITY || w->table_image;
     if ((uintptr_t)s >= (uintptr_t)w->source && (uintptr_t)s < (uintptr_t)w->source + w->source_len) {
         size_t pos = (size_t)(s - w->source), slashes = 0;
         while (pos && w->source[--pos] == '\\') ++slashes;
@@ -342,34 +378,57 @@ static int on_text(MD_TEXTTYPE type, const MD_CHAR *s, MD_SIZE len, void *ctx) {
 }
 // 高亮在归一化后配对，先保留未闭合标记；有界临时字节表最终压缩成样式区间。
 // Pair highlights after normalization, retain unmatched markers and compress the bounded temporary byte map into runs.
+static void pair_highlights(writer_t *w, size_t start, size_t end) {
+    size_t opener = SIZE_MAX;
+    for (size_t i = start; i + 1 < end; ++i) {
+        if (w->text.utf8[i] != '=' || w->text.utf8[i+1] != '=' ||
+            (w->style_bytes[i] & 0x80) || (w->style_bytes[i+1] & 0x80)) continue;
+        if ((i > start && w->text.utf8[i-1] == '=') || (i+2 < end && w->text.utf8[i+2] == '=')) continue;
+        if (opener == SIZE_MAX) opener = i;
+        else {
+            if (i > opener + 2) {
+                w->style_bytes[opener] = w->style_bytes[opener+1] = 0x40;
+                w->style_bytes[i] = w->style_bytes[i+1] = 0x40;
+                for (size_t k = opener + 2; k < i; ++k) w->style_bytes[k] |= TEXT_STYLE_HIGHLIGHT;
+            }
+            opener = SIZE_MAX;
+        }
+        ++i;
+    }
+}
+static void copy_styled_range(writer_t *w, size_t start, size_t end, size_t *write) {
+    for (size_t i = start; i < end; ++i) {
+        if (w->style_bytes[i] & 0x40) continue;
+        w->text.utf8[*write] = w->text.utf8[i];
+        w->style_bytes[(*write)++] = w->style_bytes[i] & 7;
+    }
+}
 static int finish_styles(writer_t *w) {
     size_t write = 0;
     for (size_t b = 0; b < w->text.count; ++b) {
         blk_t *block = &w->text.blocks[b];
         size_t start = block->offset, end = start + block->len;
-        size_t opener = SIZE_MAX;
-        for (size_t i = start; i + 1 < end; ++i) {
-            if (w->text.utf8[i] != '=' || w->text.utf8[i+1] != '=' ||
-                (w->style_bytes[i] & 0x80) || (w->style_bytes[i+1] & 0x80)) continue;
-            if ((i > start && w->text.utf8[i-1] == '=') || (i+2 < end && w->text.utf8[i+2] == '=')) continue;
-            if (opener == SIZE_MAX) opener = i;
-            else {
-                if (i > opener + 2) {
-                    w->style_bytes[opener] = w->style_bytes[opener+1] = 0x40;
-                    w->style_bytes[i] = w->style_bytes[i+1] = 0x40;
-                    for (size_t k = opener + 2; k < i; ++k) w->style_bytes[k] |= TEXT_STYLE_HIGHLIGHT;
-                }
-                opener = SIZE_MAX;
+        if (block->table_columns) {
+            for (size_t c = block->table_cell; c < block->table_cell + block->table_columns; ++c) {
+                markdown_cell_t *cell = &w->text.cells[c];
+                pair_highlights(w, cell->offset, cell->offset + cell->len);
             }
-            ++i;
-        }
+        } else pair_highlights(w, start, end);
         if (b) { w->text.utf8[write] = '\n'; w->style_bytes[write++] = 0; }
         block->offset = write;
-        for (size_t i = start; i < end; ++i) {
-            if (w->style_bytes[i] & 0x40) continue;
-            w->text.utf8[write] = w->text.utf8[i];
-            w->style_bytes[write++] = w->style_bytes[i] & 7;
+        size_t at = start;
+        for (size_t c = block->table_cell; block->table_columns &&
+             c < block->table_cell + block->table_columns; ++c) {
+            markdown_cell_t *cell = &w->text.cells[c];
+            size_t cell_end = cell->offset + cell->len;
+            copy_styled_range(w, at, cell->offset, &write);
+            at = cell->offset;
+            cell->offset = write;
+            copy_styled_range(w, at, cell_end, &write);
+            cell->len = write - cell->offset;
+            at = cell_end;
         }
+        copy_styled_range(w, at, end, &write);
         block->len = write - block->offset;
     }
     w->text.len = write; w->text.utf8[write] = 0;

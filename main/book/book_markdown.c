@@ -109,6 +109,12 @@ esp_err_t book_markdown_load(html_text_t *out) {
         return ESP_ERR_NO_MEM;
     memcpy(out->utf8, s_text.utf8, s_text.len + 1);
     out->len = s_text.len;
+    if (s_text.cell_count) {
+        out->cells = malloc(s_text.cell_count * sizeof(*out->cells));
+        if (!out->cells) goto fail;
+        memcpy(out->cells, s_text.cells, s_text.cell_count * sizeof(*out->cells));
+        out->cell_count = s_text.cell_count;
+    }
     if (s_text.count) {
         out->blocks = malloc(s_text.count * sizeof(blk_t));
         if (!out->blocks)

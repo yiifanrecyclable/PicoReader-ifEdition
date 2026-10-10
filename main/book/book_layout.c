@@ -9,6 +9,7 @@
  * Frozen: Caller owns source text and serializes all font measurement and drawing.
  */
 #include "book_layout.h"
+#include "markdown_table.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,10 +31,16 @@ static bool s_markdown;
 static uint8_t s_heading_px[3] = {72, 64, 56};
 static const text_style_t *s_styles;
 static size_t s_style_count, s_line_source;
+static const markdown_cell_t *s_table_cells;
+static size_t s_table_cell_count;
+void book_layout_set_markdown_tables(const markdown_cell_t *cells, size_t count) {
+    s_table_cells = cells; s_table_cell_count = count;
+}
 void book_layout_set_markdown(bool enabled, const uint8_t headings[3], const text_style_t *styles, size_t count) {
     s_markdown = enabled;
     if (headings) memcpy(s_heading_px, headings, sizeof(s_heading_px));
     s_styles = enabled ? styles : NULL; s_style_count = enabled ? count : 0;
+    if (!enabled) book_layout_set_markdown_tables(NULL, 0);
 }
 static unsigned style_at(size_t offset) {
     size_t lo = 0, hi = s_style_count;
@@ -117,7 +124,7 @@ static uint32_t codepoint_value(const char* text, size_t n) {
 // 插图容器常带全角空白、零宽字符和换行实体；它们不是可阅读的独立段落。
 // Image wrappers often contain fullwidth spaces, zero-width characters and line-break entities, not readable paragraphs.
 static bool image_spacing_block(const blk_t* block) {
-    if (!block || block->image >= 0) return false;
+    if (!block || block->image >= 0 || block->table_columns) return false;
     size_t end = block->offset + block->len;
     for (size_t at = block->offset; at < end;) {
         size_t n = codepoint_size(s_text + at, end - at);
@@ -186,6 +193,7 @@ uint32_t book_layout_generation(void) { return s_generation; }
 
 void book_layout_free(void) {
     ++s_generation;
+    markdown_table_free();
     free(s_pages);
     free(s_line);
     free(s_images);
@@ -335,6 +343,11 @@ static bool append_page(size_t off) {
     ++s_count;
     s_page_img_start[s_count] = (uint32_t)s_image_count;
     return true;
+}
+
+static bool table_next_page(void *ctx, size_t offset) {
+    (void)ctx;
+    return offset < s_len && (!s_count || offset > s_pages[s_count-1]) && append_page(offset);
 }
 
 // 折行时保留原文字节位置；CRLF 算一个段落边界。/ Preserve source offsets while wrapping; CRLF is one paragraph boundary.
@@ -516,6 +529,25 @@ bool book_layout_build_blocks(const char* utf8, size_t len, const blk_t* blocks,
         }
     }
     if (s_markdown) {
+        if (s_table_cell_count > 65536 || (s_table_cell_count && !s_table_cells)) return false;
+        for (size_t i = 0; i < count; ++i) {
+            const blk_t *b = &blocks[i];
+            if (!b->table_columns) continue;
+            if (!b->table_id || b->image >= 0 || b->table_cell > s_table_cell_count ||
+                b->table_columns > s_table_cell_count - b->table_cell ||
+                rect.width > INT16_MAX || rect.height > INT16_MAX) return false;
+            if (i && b->table_id == blocks[i-1].table_id &&
+                (b->table_columns != blocks[i-1].table_columns || b->table_header)) return false;
+            size_t previous = b->offset;
+            for (size_t c = b->table_cell; c < b->table_cell + b->table_columns; ++c) {
+                const markdown_cell_t *cell = &s_table_cells[c];
+                if (cell->offset < previous || cell->offset > b->offset+b->len ||
+                    cell->len > b->offset+b->len-cell->offset || cell->align > 2 ||
+                    (cell->offset < len && ((unsigned char)utf8[cell->offset]&0xc0)==0x80) ||
+                    (cell->offset+cell->len < len && ((unsigned char)utf8[cell->offset+cell->len]&0xc0)==0x80)) return false;
+                previous = cell->offset + cell->len;
+            }
+        }
         if (s_style_count > 16384 || (s_style_count && !s_styles)) return false;
         size_t end = 0;
         for (size_t i = 0; i < s_style_count; ++i) {
@@ -533,6 +565,8 @@ bool book_layout_build_blocks(const char* utf8, size_t len, const blk_t* blocks,
     s_len = len;
     s_px = px;
     s_rect = rect;
+    if (s_markdown) markdown_table_configure(utf8, s_table_cells, s_styles, s_style_count,
+                                            rect, px, s_line_percent, s_tracking_px);
     s_line = heap_caps_malloc(len + 1, PSRAM_CAPS);
     size_t off = s_lead_skip;
     if (!s_line) goto fail;
@@ -550,6 +584,16 @@ bool book_layout_build_blocks(const char* utf8, size_t len, const blk_t* blocks,
         size_t visible = skip_image_spacing(off);
         if (visible != off) { off = visible; continue; }
         const blk_t* block = block_at(off);
+        if (s_markdown && block && block->table_columns && off == block->offset) {
+            size_t first = (size_t)(block-s_blocks), last = first+1;
+            while (last < s_block_count && s_blocks[last].table_id == block->table_id &&
+                   s_blocks[last].table_columns) ++last;
+            size_t after = s_blocks[last-1].offset+s_blocks[last-1].len;
+            if (after < len && utf8[after] == '\n') ++after;
+            if (!markdown_table_build(block, last-first, after, s_count-1, &used, table_next_page, NULL)) goto fail;
+            off = after;
+            continue;
+        }
         if (block && block->image >= 0 && off == block->offset) {
             int img_w = 0, img_h = 0;
             if (image_display_size(block->image, &img_w, &img_h)) {
@@ -678,6 +722,12 @@ void book_layout_draw_page(uint8_t* fb, size_t page, EpdRect rect, int px) {
     uint32_t img_at = s_page_img_start ? s_page_img_start[page] : 0;
     const uint32_t img_end = s_page_img_start ? s_page_img_start[page + 1] : 0;
     while (off < end) {
+        size_t table_next;
+        if (s_markdown && markdown_table_draw(fb, page, off, rect, &table_next, &used)) {
+            if (table_next <= off) return;
+            off = table_next;
+            continue;
+        }
         size_t visible = skip_image_spacing(off);
         if (visible != off) { off = visible; continue; }
         const blk_t* image_block = block_at(off);

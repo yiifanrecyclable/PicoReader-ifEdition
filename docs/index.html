@@ -12,9 +12,9 @@ body{max-width:760px;margin:40px auto;padding:0 20px;font:17px/1.7 system-ui,san
 </head>
 <body>
 <h1>Pico Reader IF Edition</h1>
-<p>版本 <strong>0.3.3-rc83-if.7</strong> · 仅适用 Pico RDP-G01-W</p>
-<p>基于 <strong>Pico Reader 0.3.3-rc83</strong> 的独立衍生版本，增加坚果云同步和 Markdown 阅读，并调整首页与操作界面。if.7 更新同步提示、USB 图标和传书名称。</p>
-<p><a href="https://github.com/yiifanrecyclable/PicoReader-ifEdition">IF 项目源码</a> · <a href="https://github.com/yiifanrecyclable/PicoReader-ifEdition/tree/0.3.3-rc83-if.7">if.7 对应源码与构建说明</a> · <a href="https://github.com/yiifanrecyclable/PicoReader-ifEdition/archive/refs/tags/0.3.3-rc83-if.7.zip">源码 ZIP</a> · <a href="https://github.com/yiifanrecyclable/PicoReader-ifEdition/releases/tag/0.3.3-rc83-if.7">版本页面</a></p>
+<p>版本 <strong>0.3.3-rc83-if.8</strong> · 仅适用 Pico RDP-G01-W</p>
+<p>基于 <strong>Pico Reader 0.3.3-rc83</strong> 的独立衍生版本，增加坚果云同步和 Markdown 阅读，并调整首页与操作界面。if.8 新增 Markdown 表格显示，支持自动换行、续页表头与宽表展开。</p>
+<p><a href="https://github.com/yiifanrecyclable/PicoReader-ifEdition">IF 项目源码</a> · <a href="https://github.com/yiifanrecyclable/PicoReader-ifEdition/tree/0.3.3-rc83-if.8">if.8 对应源码与构建说明</a> · <a href="https://github.com/yiifanrecyclable/PicoReader-ifEdition/archive/refs/tags/0.3.3-rc83-if.8.zip">源码 ZIP</a> · <a href="https://github.com/yiifanrecyclable/PicoReader-ifEdition/releases/tag/0.3.3-rc83-if.8">版本页面</a></p>
 <figure class="hero"><img src="./images/if-edition-home.png" width="1300" height="1800" alt="Pico Reader IF Edition 真机首页：日期格言、阅读记录与最近阅读" fetchpriority="high" decoding="async"></figure>
 <h2>在线安装</h2>
 <p>在线安装无需安装 Python 或刷机工具。请先备份重要数据；首次从原版迁移会重写分区表，原版内置存储数据不保证保留。</p>
@@ -22,19 +22,20 @@ body{max-width:760px;margin:40px auto;padding:0 20px;font:17px/1.7 system-ui,san
 <li>在电脑 Chrome 或 Edge 中打开本页。</li>
 <li>唤醒 Pico，用可传数据的 USB-C 线连接电脑。退出 USB 读卡模式，关闭其他占用串口的工具。</li>
 <li>点击下方连接按钮，选择 Pico 对应的串口。</li>
-<li>按弹窗提示确认安装，保持连接，等待完成并重启。随后核对当前版本为 <code>0.3.3-rc83-if.7</code>。</li>
+<li>按弹窗提示确认安装，保持连接，等待完成并重启。随后核对当前版本为 <code>0.3.3-rc83-if.8</code>。</li>
 </ol>
 <p id="flash-status" role="status" aria-live="polite">正在加载在线安装按钮…</p>
-<esp-web-install-button id="flash-installer" hidden manifest="./webflash/0.3.3-rc83-if.7/manifest.json"><button slot="activate" type="button">连接 Pico，安装固件</button></esp-web-install-button>
+<esp-web-install-button id="flash-installer" hidden manifest="./webflash/0.3.3-rc83-if.8/manifest.json"><button slot="activate" type="button">连接 Pico，安装固件</button></esp-web-install-button>
 <p><small>在线安装使用 <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>。</small></p>
 <h2>下载</h2>
+<p><a href="表格阅读示例.md" download>Markdown 表格示例</a> — 下载后放入 TF 卡的 markdown 文件夹阅读。</p>
 <ul>
-<li><a href="Pico-IF-0.3.3-rc83-if.7-usb.zip" download>USB 完整安装包</a> — 手动安装备用。</li>
-<li><a href="Pico-IF-0.3.3-rc83-if.7-tf.zip" download>TF 更新包</a> — 已安装 IF 的设备使用。</li>
-<li><a href="Pico-IF-0.3.3-rc83-if.7-resources.zip" download>TF 字体与拼音词库</a> — 首次安装准备，后续已有资源无需重装。</li>
+<li><a href="Pico-IF-0.3.3-rc83-if.8-usb.zip" download>USB 完整安装包</a> — 手动安装备用。</li>
+<li><a href="Pico-IF-0.3.3-rc83-if.8-tf.zip" download>TF 更新包</a> — 已安装 IF 的设备使用。</li>
+<li><a href="Pico-IF-0.3.3-rc83-if.8-resources.zip" download>TF 字体与拼音词库</a> — 首次安装准备，后续已有资源无需重装。</li>
 <li><a href="安装说明.md">完整中文安装说明</a> · <a href="SHA256SUMS">下载包 SHA256</a> · <a href="许可证.zip" download>全部随包许可声明</a></li>
 </ul>
-<p><a href="Pico-IF-0.3.3-rc83-if.7-source.zip" download>该版本对应源码与构建说明</a></p>
+<p><a href="Pico-IF-0.3.3-rc83-if.8-source.zip" download>该版本对应源码与构建说明</a></p>
 <details>
 <summary>手动安装（备用）</summary>
 <h2>USB 完整安装</h2>
@@ -47,7 +48,7 @@ body{max-width:760px;margin:40px auto;padding:0 20px;font:17px/1.7 system-ui,san
 <p>Mac 写入：</p>
 <pre style="white-space:pre-wrap"><code>python3 -m esptool --chip esp32s3 --port PORT --baud 460800 --before default-reset --after hard-reset write-flash @flash_args</code></pre>
 <p>Windows 使用同一命令，将 <code>python3</code> 换成 <code>py</code>。连接不稳定可将波特率改为 <code>115200</code>。保持包内目录结构，勿添加擦除命令；本机型没有 BOOT/RESET 物理按键。</p>
-<p>等待四段写入与校验完成，重启后检查当前版本为 <code>0.3.3-rc83-if.7</code>，确认界面可响应。<code>flash_args</code> 来自同版构建：0x0 引导器、0x8000 分区表、0xd10000 OTA 初始数据、0x10000 应用，dio / 80m / 16MB。</p>
+<p>等待四段写入与校验完成，重启后检查当前版本为 <code>0.3.3-rc83-if.8</code>，确认界面可响应。<code>flash_args</code> 来自同版构建：0x0 引导器、0x8000 分区表、0xd10000 OTA 初始数据、0x10000 应用，dio / 80m / 16MB。</p>
 </details>
 <h2>后续 IF 更新：TF 卡</h2>
 <ol>
@@ -59,11 +60,11 @@ body{max-width:760px;margin:40px auto;padding:0 20px;font:17px/1.7 system-ui,san
 <h2>字体、词库与同步</h2>
 <p>首次解压资源包，将 <code>TF卡资源</code> 内的 <code>fonts</code> 和 <code>system</code> 文件夹合并到卡根目录。最终应有 <code>fonts/PicoSans-Medium.ttf</code> 和 <code>system/ime/pinyin.ifdict</code>，并保留随附许可文件。资源包只含固定授权标准字体和离线词库。</p>
 <p>在文件页进入坚果云同步，填写自己的账号、应用密码及阅读目录，刷新后选择文档下载，再从内容页离线阅读。不要公开密码或含凭据的设置备份。下载包不含账号配置。</p>
-<p><small>应用镜像 SHA256：<code>0a2334eb5eb822d5e86cc675f892ac4280855ff7bf1e67c8b94db5e967a8290b</code></small></p>
+<p><small>应用镜像 SHA256：<code>cfc4639b227a5dce9bba131e7d96abc1ee13ff6a893609648306e0c0ada472f3</code></small></p>
 <footer>
 <p>感谢原作者。<a href="https://wegooo-cell.github.io/read-pico-reader/">Pico Reader 原作者主页</a> · <a href="https://github.com/wegooo-cell/read-pico-reader">原作者源码仓库</a></p>
 <p><small>IF 是独立衍生版本，不是原作者或 MindReset 官方发布。保留上游版权、<a href="LICENSE">Apache-2.0</a> 与各组件许可；epdiy 使用 LGPL-3.0-or-later。<a href="NOTICE.txt">来源说明</a> · <a href="许可证.zip">完整许可包</a></small></p>
 </footer>
-<script type="module" src="./webflash/installer.js"></script>
+<script type="module" src="./webflash/installer.js?v=if.8"></script>
 </body>
 </html>

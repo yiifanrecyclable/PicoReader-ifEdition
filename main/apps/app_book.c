@@ -402,6 +402,8 @@ bool app_book_reader_body_visible(void) {
 static blk_t* s_blocks;
 static text_style_t *s_text_styles;
 static size_t s_text_style_count;
+static markdown_cell_t *s_text_cells;
+static size_t s_text_cell_count;
 static bool s_md_committed;
 static char s_md_notice[64];
 static uint8_t s_md_sizes[4] = {48,72,64,56}, s_md_draft[4];
@@ -2275,6 +2277,7 @@ static void free_book(void) {
     free(s_text);
     free(s_blocks);
     free(s_text_styles);
+    free(s_text_cells); s_text_cells = NULL; s_text_cell_count = 0;
     for (size_t i = 0; i < s_image_count; ++i) free(s_images[i]);
     free(s_images);
     s_images = NULL; s_image_count = 0;
@@ -2446,10 +2449,12 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
     s_reader_dims_ctx = (reader_dims_ctx_t){chapter, loaded.images, loaded.image_count};
     book_layout_set_image_dims(book_kind()==BOOK_KIND_EPUB ? reader_image_dims : NULL, &s_reader_dims_ctx);
     book_layout_set_markdown(book_kind()==BOOK_KIND_MARKDOWN,s_md_sizes+1,loaded.styles,loaded.style_count);
+    book_layout_set_markdown_tables(loaded.cells, loaded.cell_count);
     bool ok = book_layout_build_blocks(loaded.utf8, loaded.len, loaded.blocks, loaded.count, body_rect(), s_px);
     if (!ok) {
         s_reader_dims_ctx = old_dims_ctx;
         book_layout_set_markdown(book_kind()==BOOK_KIND_MARKDOWN,s_md_sizes+1,s_text_styles,s_text_style_count);
+        book_layout_set_markdown_tables(s_text_cells, s_text_cell_count);
         html_text_free(&loaded);
         book_layout_set_chapter_lead(old_lead_skip, old_lead_height);
         bool restored = s_text && book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count, body_rect(), s_px);
@@ -2466,6 +2471,8 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
     free(s_blocks);
     free(s_text_styles);
     s_text_styles = loaded.styles; s_text_style_count = loaded.style_count;
+    free(s_text_cells);
+    s_text_cells = loaded.cells; s_text_cell_count = loaded.cell_count;
     s_text = loaded.utf8;
     s_text_len = loaded.len;
     s_blocks = loaded.blocks;

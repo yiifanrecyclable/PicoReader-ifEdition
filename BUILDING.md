@@ -1,6 +1,6 @@
 # Pico Reader IF Edition 对应源码
 
-对应版本0.3.3-rc83-if.7，项目Read_Pico_IF，基于Pico Reader rc83。包括应用、修改后的epdiy、固定第三方组件、内建字体和实际构建配置，可修改并重新编译、链接。许可见LICENSE、THIRD_PARTY_NOTICES.md及组件许可证。
+对应版本0.3.3-rc83-if.8，项目Read_Pico_IF，基于Pico Reader rc83。包括应用、修改后的epdiy、固定第三方组件、内建字体和实际构建配置，可修改并重新编译、链接。许可见LICENSE、THIRD_PARTY_NOTICES.md及组件许可证。
 
 ## 构建和重新链接
 
@@ -16,4 +16,4 @@ idf.py -B build -D SDKCONFIG=sdkconfig.release build
 
 主体Apache-2.0，epdiy LGPL-3.0-or-later，其他组件依各自许可。原作者：https://wegooo-cell.github.io/read-pico-reader/ ，原项目：https://github.com/wegooo-cell/read-pico-reader 。IF为独立衍生版本。
 
-发布应用SHA256：0a2334eb5eb822d5e86cc675f892ac4280855ff7bf1e67c8b94db5e967a8290b。
+发布应用SHA256：cfc4639b227a5dce9bba131e7d96abc1ee13ff6a893609648306e0c0ada472f3。

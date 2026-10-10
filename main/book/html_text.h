@@ -30,13 +30,21 @@ typedef struct {
     uint8_t indent_percent; ///< 首行缩进，相对字号百分比 / First-line indent as a percentage of font size
     uint8_t margin_before_percent; ///< 段前距，相对字号百分比 / Leading margin as a percentage of font size
     uint8_t margin_after_percent; ///< 段后距，相对字号百分比 / Trailing margin as a percentage of font size
+    uint32_t table_cell; ///< Markdown 行的首单元格下标 / First cell of a Markdown row
+    uint16_t table_columns, table_id; ///< 列数与非零表格编号 / Column count and nonzero table identity
+    bool table_header; ///< Markdown 表头行 / Markdown header row
 } blk_t;
+
+/// Markdown 单元格借用归一化正文区间，允许空内容。/ Markdown cell range in normalized text, including empty cells.
+typedef struct { size_t offset, len; uint8_t align; } markdown_cell_t;
 
 enum { TEXT_STYLE_BOLD = 1, TEXT_STYLE_ITALIC = 2, TEXT_STYLE_HIGHLIGHT = 4 };
 /// 非重叠有序文字样式区间，偏移沿用归一化 UTF-8。/ Ordered nonoverlapping style runs in normalized UTF-8.
 typedef struct { size_t offset, len; uint8_t flags; } text_style_t;
 
 typedef struct {
+    markdown_cell_t *cells; ///< 自有 Markdown 单元格表，普通图书为空 / Owned Markdown cells, absent in ordinary books
+    size_t cell_count;
     text_style_t* styles; ///< 自有样式表，普通图书为空 / Owned style table, empty for ordinary books
     size_t style_count;
     char* utf8; ///< 模块分配且零结尾的文本 / Owned NUL-terminated text

@@ -3,9 +3,13 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
-## 2026-10-10 · Codex · 在线安装页面
+## 2026-10-10 · Codex · 插件独立发布
 
-- if.7固件不变，首次安装页面新增浏览器刷机按钮，手动安装收为备用。IF安装清单限定ESP32-S3及四段地址，禁用整片擦除，保留对应源码、下载与原作者链接。 / The unchanged if.7 firmware gains a browser installation page with manual fallback, four ESP32-S3 parts, no full-chip erase and retained source/attribution links.
+- Ob插件0.1.5命名为Sent to E-ink Reader，作者ifRecyclable，独立源码与安装包发布到GitHub Sent-to-E-ink-Reader。保留内部插件/命令/密码存储标识和现有配置；继续手动发送原名Markdown纯文本。 / Plugin 0.1.5 is branded Sent to E-ink Reader by ifRecyclable and independently published on GitHub. Preserve plugin/command/secret identities and settings, retaining manual flat-filename Markdown text delivery.
+
+## 2026-10-10 · Codex · Markdown 表格阅读
+
+- IF版本if.8新增原生Markdown表格：细线网格、浅灰粗体表头、列对齐、单元格换行、长表续页重复表头，过宽表格按列名与内容纵向展开。沿用文档字体/字号及粗体、斜体、高亮；保留既有正文偏移以恢复进度与书签。表内图片显示描述文字，表外图片沿用原有阅读方式。 / IF if.8 adds native Markdown grids, gray bold headers, column alignment, wrapping, repeated continuation headers and stacked wide tables. Keep document typography, emphasis, highlights and text offsets for progress/bookmarks; table images show their descriptions while ordinary images retain their existing behavior.
 
 ## 2026-10-10 · Codex · 同步说明与传输入口文案
 
