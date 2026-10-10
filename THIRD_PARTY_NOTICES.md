@@ -50,3 +50,8 @@ JPEGDEC 使用 BitBank Apache-2.0，具体适配与修正见 `components/jpegdec
 ## Offline lunar-year table
 
 `main/ui/ui_lunar_data.h` is generated from MIT-licensed [6tail lunar-python](https://github.com/6tail/lunar-python) 1.4.8. Only 201 year-start/month-length records are linked into firmware, not the Python library. The original license, source digest and generator instructions are in [assets/calendar](assets/calendar/README.md). Gregorian/lunar date anchors were checked against the [Hong Kong Observatory 2026 conversion table](https://www.hko.gov.hk/tc/gts/time/calendar/pdf/files/2026.pdf).
+
+## IF online installer
+
+The locally hosted ESP Web Tools fork retains its Apache-2.0 license. IF disables full-chip erase for installation, uses four separate versioned image parts and performs no automatic serial access. Source and modification notes: `docs/webflash/vendor/esp-web-tools-if-v1/IF-CHANGES.md`.
+本地ESP Web Tools适配保留Apache-2.0许可；IF安装禁用整片擦除，采用四段同版镜像，不自动请求串口。具体修改见对应目录IF-CHANGES.md。

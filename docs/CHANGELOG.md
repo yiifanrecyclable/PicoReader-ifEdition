@@ -3,6 +3,10 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 2026-10-10 · Codex · 在线安装页面
+
+- if.7固件不变，首次安装页面新增浏览器刷机按钮，手动安装收为备用。IF安装清单限定ESP32-S3及四段地址，禁用整片擦除，保留对应源码、下载与原作者链接。 / The unchanged if.7 firmware gains a browser installation page with manual fallback, four ESP32-S3 parts, no full-chip erase and retained source/attribution links.
+
 ## 2026-10-10 · Codex · 同步说明与传输入口文案
 
 - IF开发版if.7按用户文案更新坚果云设置的七条使用说明，标题与账号字段同字号，长句自动折行；文件页改为“微读传书”“USB连接”，USB图标改为插头轮廓。 / Development if.7 updates seven Nutstore instructions with a matching heading size and wrapped bullets, renames transfer entries and replaces the USB symbol with a plug outline.

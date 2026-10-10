@@ -1,0 +1,38 @@
+{
+  "name": "Pico Reader IF Edition",
+  "version": "0.3.3-rc83-if.7",
+  "new_install_prompt_erase": true,
+  "new_install_improv_wait_time": 0,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "improv": false,
+      "parts": [
+        {
+          "path": "bootloader.bin",
+          "offset": 0,
+          "size": 21232,
+          "sha256": "f3f8b26d11ab7e4e36ee115f743f4c2d91b319fe54c36c447e66824352ca127d"
+        },
+        {
+          "path": "partition-table.bin",
+          "offset": 32768,
+          "size": 3072,
+          "sha256": "edba9d92e5fc51c706c12f4b4a5d5d23728ba8fb0fbc00be654f1eccef404bda"
+        },
+        {
+          "path": "firmware.bin",
+          "offset": 65536,
+          "size": 3671504,
+          "sha256": "0a2334eb5eb822d5e86cc675f892ac4280855ff7bf1e67c8b94db5e967a8290b"
+        },
+        {
+          "path": "ota-data-initial.bin",
+          "offset": 13697024,
+          "size": 8192,
+          "sha256": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f"
+        }
+      ]
+    }
+  ]
+}

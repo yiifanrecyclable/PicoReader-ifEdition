@@ -6,7 +6,7 @@
 
 [下载与手动刷机教程](https://yiifanrecyclable.github.io/PicoReader-ifEdition/) · [GitHub 发布版本](https://github.com/yiifanrecyclable/PicoReader-ifEdition/releases/tag/0.3.3-rc83-if.7) · [中文安装说明](docs/安装说明.md)
 
-首次从原版迁移使用USB完整安装包；已安装IF后使用TF更新包。第一次准备TF字体与词库资源，后续更新无需重装。用户已确认本地阅读、坚果云文档拉取保存及最新界面可用。
+首次安装推荐使用电脑Chrome/Edge打开下载页在线刷机，无需安装Python或esptool；USB手动安装包作为备用。已安装IF后可使用TF更新包。第一次准备TF字体与词库资源，后续更新无需重装。用户已确认本地阅读、坚果云文档拉取保存及最新界面可用。
 
 源码、固定依赖与实际构建配置均在本仓库。[构建与重新链接说明](BUILDING.md) · [对应源码快照](docs/Pico-IF-0.3.3-rc83-if.7-source.zip)。插件与手动放入的MD/TXT/EPUB均可从配置的坚果云文件夹拉取；Obsidian端插件本次不在固件下载页提供，可联系作者获取。
 
