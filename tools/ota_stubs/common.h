@@ -7,6 +7,7 @@
 #define ESP_ERR_INVALID_STATE 0x103
 #define ESP_ERR_TIMEOUT 0x107
 #define ESP_ERR_NO_MEM 0x101
+#define ESP_ERR_NOT_FOUND 0x105
 #define ESP_ERR_INVALID_SIZE 0x104
 #define ESP_ERR_HTTP_EAGAIN 0x7007
 #define MALLOC_CAP_SPIRAM 1
@@ -29,10 +30,14 @@
 #define PSA_ALG_SHA_256 1
 #define PSA_HASH_OPERATION_INIT {0}
 typedef void *SemaphoreHandle_t;
+typedef void *TaskHandle_t;
+#define pdTRUE 1
+#define READ_PICO_TRANSFER_STOPPED 0
+#define READ_PICO_TRANSFER_READY 2
 typedef unsigned esp_ota_handle_t;
 typedef struct {uint32_t magic_word,secure_version,reserv1[2];char version[32],project_name[32];uint8_t unused[176];} esp_app_desc_t;
 typedef struct {uint8_t magic;uint8_t unused[11];uint16_t chip_id;uint8_t tail[10];} esp_image_header_t;
-typedef struct {uint32_t address,length;} esp_image_segment_header_t;
+typedef struct {uint32_t address;union {uint32_t length,data_len;};} esp_image_segment_header_t;
 typedef struct {uint32_t address,size;} esp_partition_t;
 typedef struct FakeHttp *esp_http_client_handle_t;
 #define HTTP_EVENT_ON_HEADER 1
@@ -87,3 +92,6 @@ int psa_hash_setup(psa_hash_operation_t*,int);
 int psa_hash_update(psa_hash_operation_t*,const void*,size_t);
 int psa_hash_finish(psa_hash_operation_t*,uint8_t*,size_t,size_t*);
 int psa_hash_abort(psa_hash_operation_t*);
+
+esp_err_t esp_http_client_close(esp_http_client_handle_t);
+esp_err_t esp_http_client_set_user_data(esp_http_client_handle_t,void*);

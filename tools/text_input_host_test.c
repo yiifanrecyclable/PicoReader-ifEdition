@@ -55,3 +55,6 @@ int main(int argc,char **argv){
  puts("Shared input: UTF-8 editing, overflow, candidates, modes, full ASCII symbols, secrets, fixed bottom geometry and common field baseline passed");
  return 0;
 }
+
+int ui_text_effective_px(int px){return px+2;}
+int ui_text_fit_px(int px,const char *s,int w,int h){int size=px+2;while(size>16&&(size>h||ui_text_fixed_width_px(size,s)>w))--size;return size;}

@@ -8,7 +8,7 @@ bash tools/run_book_host_tests.sh
 mkdir -p build/book-tests/settings-card
 cc -std=gnu11 -Wall -Wextra -Werror -Itools/settings_backup_stubs \
     -Icomponents/read_pico_transfer/include \
-    tools/settings_backup_host_test.c -o build/book-tests/settings-backup
+    tools/settings_backup_host_test.c main/book/reader_input.c -o build/book-tests/settings-backup
 build/book-tests/settings-backup
 cc -std=gnu11 -Wall -Wextra -Werror -Itools/settings_backup_stubs \
     tools/book_history_backup_host_test.c main/book/content_library.c -Imain/book -o build/book-tests/book-history-backup
@@ -30,7 +30,10 @@ build/book-tests/file-tree
 gcc "${flags[@]}" -Icomponents/read_pico_search/include tools/transfer_host_test.c components/read_pico_search/read_pico_search.c -o build/book-tests/transfer
 build/book-tests/transfer
 gcc "${flags[@]}" -Imanaged_components/espressif__cjson/cJSON tools/transfer_wifi_host_test.c managed_components/espressif__cjson/cJSON/cJSON.c -lm -o build/book-tests/transfer-wifi
+cc "${flags[@]}" -Itools/settings_backup_stubs -Imain/book tools/reader_input_host_test.c -o build/book-tests/reader-input
+build/book-tests/reader-input
 build/book-tests/transfer-wifi
+python3 tools/test_network_ui.py
 gcc "${flags[@]}" -Itools/transfer_ui_stubs -Icomponents/read_pico_transfer/include tools/transfer_ui_host_test.c -o build/book-tests/transfer-ui
 build/book-tests/transfer-ui
 bash tools/run_app_loop_host_tests.sh

@@ -14,7 +14,17 @@ static void simulator_replay(app_ctx_t *ctx,
         if(sscanf(p,"%c,%u,%u,%u,%u",&type,&x,&y,&xx,&yy)!=5)break;
         ctx->now_ms+=1000;
         ui_gesture_event_t e={.x0=x,.y0=y,.x=xx,.y=yy};
-        if(type=='k'){if(key)key(ctx,x);}
+        if(type=='b'||type=='v'||type=='e'||type=='h'||type=='n'){
+#ifdef SIM_REPLAY_RAW
+            SIM_REPLAY_RAW(ctx,type,x,y);
+#endif
+        }
+        else if(type=='q'){
+#ifdef SIM_REPLAY_SHORTCUT
+            SIM_REPLAY_SHORTCUT(ctx,(int)x);
+#endif
+        }
+        else if(type=='k'){if(key)key(ctx,x);}
         else if(gesture){
             if((type=='t'||type=='l')&&!held){e.type=UI_GESTURE_PRESS;gesture(ctx,&e);}
             e.type=type=='p'?UI_GESTURE_PRESS:type=='m'?UI_GESTURE_MOVE:type=='c'?UI_GESTURE_CANCEL:type=='t'?UI_GESTURE_TAP:type=='l'?UI_GESTURE_LONG_PRESS:type=='u'?UI_GESTURE_SWIPE_U:type=='d'?UI_GESTURE_SWIPE_D:type=='r'?UI_GESTURE_SWIPE_R:UI_GESTURE_SWIPE_L;

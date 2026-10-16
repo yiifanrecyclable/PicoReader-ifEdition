@@ -34,6 +34,12 @@ PicoBox/
 - 下载至暂存后统一验证并提交，失败保留旧正文。同名真正更新清阅读进度和书签，保持首次入库日期及置顶；同文同图保持进度。EPUB下载先检查ZIP文件头，实际阅读由原书源解析。
 - 一次选择存在同名文件（包括ASCII大小写区别）时提示只选一篇，分次同步以后一次下载覆盖。本地删除不删除云端文件。
 
+## 同步中的屏幕刷新
+
+同步状态和进度最多每秒更新一次，只用GL16差分更新发生变化的像素，不计入普通页面周期性清残影次数。手动强刷、锁屏和显示异常恢复仍可能需要GC16全刷；减少同步黑白闪烁不代表停用所有清残影刷新。
+
+English: Cloud status and progress use GL16 pixel differences at most once per second and do not advance ordinary page-cleanup counters. Explicit refreshes, locking and display-error recovery may still require full GC16 updates.
+
 ## 中断恢复与访问边界
 
 云端只使用HTTPS的GET/PROPFIND，校验证书链与主机名；拒绝重定向，不写入或删除云盘。目录上限96项可读内容；达到服务目录限制或本地上限时明确提示拆分文件夹，不能把不完整目录当作完整目录。客户端每30分钟最多450次请求；401/403停止整批，429/503最多两次短暂重试，长期限流提示稍后手动操作。

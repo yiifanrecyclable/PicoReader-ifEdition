@@ -1,7 +1,77 @@
 # 版本变更 / Changelog
 
+
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
+
+## 2026-10-16 · Codex · if-ink OS v0.1.1
+
+- 首页最近阅读标题行右侧增加注释字号的“markdown文档”，右对齐。 / Add a right-aligned caption label for recent Markdown documents.
+
+- 首页最近阅读的图书/文档竖分隔线与板块横分隔线统一灰度和2px粗细，上端对齐标题文字顶部。 / Match the recent-reading column divider to the section rules in gray and 2 px thickness, starting at the title's ink top.
+
+- 内容与文件页底部分页箭头、统计文字及触区上移24px，与导航栏留出间隔；列表和书架预留相应空间。 / Raise shared pagination and hit targets by 24 px, reserving space above navigation.
+
+- 清理正式界面剩余圆角分区：传书/USB信息区、字体/壁纸/图片列表、图书与文档管理及排序页统一白底深浅分割线；保留操作控件与详情/确认浮层。 / Flatten remaining production sections and lists with shared dividers, retaining functional controls and detail/confirmation overlays.
+
+- 设置页顶部口号改为半灰色，Pico首字母大写。 / Render the settings slogan in mid-gray and capitalize Pico.
+
+- 无线网络页去除区块及连接/扫描操作的圆角边框，统一深色分区线和浅色列表线；设置进入的配网页返回设置，模拟器保留独立来源。 / Flatten WiFi sections/actions with shared dividers and return Settings provisioning to Settings, retaining its origin in the simulator.
+
+- 移除系统对比度入口与调节，旧配置不再生效且保持备份兼容；压缩设置顶部名称区，同行右端显示“支持md文档的pico固件”。 / Retire contrast control while retaining backup compatibility, compact the settings identity area and place its slogan at the right.
+
+- 新增独立GitHub稳定源在线升级：检查后确认，后台流式写空闲槽，校验S3/项目/版本/分区/大小/SHA256与镜像；进度每秒灰阶差分，取消/失败保留当前系统并回收临时WiFi。稳定通道等待正式版发布再开放。 / Add a GitHub stable updater with confirmation, validated inactive-slot streaming, throttled gray progress and cleanup; leave availability disabled until a tested stable release.
+- 项目仓库迁移为if-ink-OS，站点链接同步；更新协议使用固定仓库/资产编号，固件内部Read_Pico_IF身份及已发布版本不改。 / Rename the repository and migrate site links, addressing updates by stable IDs while retaining image identity and released versions.
+
+- 坚果云图标按官方参考重新描绘左下饱满果身、右上果帽、弧形分界及弯柄，沿用单色描边。 / Redraw the Nutstore icon from the official reference with a full lower-left body, upper-right cap, curved seam and stem in monochrome strokes.
+
+- 设置收敛为账号与链接、显示与个性化、系统与设备三分区；固件信息一屏展示功能与kiikoread来源，本地升级统一从页底进入，在线升级暂未开放并明确提示。 / Regroup settings into three sections and add a single-screen firmware overview, attribution and update entries; local update remains available and online update is explicitly unavailable.
+
+- 定向采纳rc95驱动释放和失败重试；保留IF首页清白、完整灰阶及现有双道水波纹，睡眠前同步收尾。 / Adopt rc95 drive release/retry without changing IF optical policies; finish cleanup before sleep.
+- 连续阅读改为按行/表格块可停止、续画的下一页预绘；长章节缓冲按需增长，EPUB标题/锚点池化并重建独立版本索引，插图优先回收可重建字形/预绘。 / Add resumable prefetch, grow line scratch on demand, pool EPUB titles/anchors with versioned caches and prioritize images over rebuildable caches.
+- 改善TF检测未知状态、挂载降速重试与USB失败收尾，保留真实拔卡失效锁存及存储独占。 / Harden unknown SD detection, bounded mount retries and USB teardown while preserving removal latches and exclusive access.
+- 撤下微读传书及其构建依赖，文件页保留WiFi/热点、坚果云同步、USB连接三入口；坚果图标沿用斜放果实、果帽与短柄。固定books/fonts/markdown，取消自定义根目录并保护标准根目录，旧文件原位保留。 / Retire WeRead and its build dependency, retain three transfer routes and redraw the tilted Nutstore nut. Fix media roots and protect them without moving legacy files.
+
+- 修复目录百分比拖动被主循环取消；阅读滑块仅更新动态控件，复用正文及有界的系统／阅读字体缓存，减少拖动中的整页绘制和读卡。 / Fix TOC drag cancellation and repaint only dynamic reader controls, reusing prose and bounded UI/reading font contexts.
+
+- 按真机反馈精简阅读操作示例并为装配遮挡预留底部安全区；全屏阅读跨内容／重启记忆，控制面板按钮压紧行距，底部选中改短粗线。 / Refine guidance with a bezel inset, persist full screen, tighten panel text and mark reader tabs with a short line.
+- 页边距改独立逐像素调整，段距细化至1%；统一滑块松手提交并修正端点跳档，阅读线位置按钮分开。重排后更新插图缓存。 / Decouple pixel margins, refine paragraph steps and slider release handling, separate rule controls and refresh reflow images.
+- 取消四种双指方向滑动，手势与候选操作分别集中一页，行内显示绑定；旧12槽配置仍兼容并清除停用绑定。 / Retire two-finger directional swipes and show eight gestures and action choices on single pages with legacy-format compatibility.
+- 主导航渐变阴影9px缩至7px；首页主动强刷使用白底清屏及完整48相灰阶波形，普通导航保持原刷新策略。 / Narrow navigation shadows and use white-baseline full grayscale cleanup for explicit Home refreshes.
+
+## 2026-10-15 · Codex · if-ink OS v0.1.0 开发版
+
+- 操作示例原文及竖向分区线延伸至底部，浮层说明统一白描边，实体按键提示字号与中部一致；调整顶部文案及居中标题。 / Extend guide prose and dividers to the bottom; unify outlined instructions and center the header.
+
+- 阅读面板章节信息左对齐，“返回跳转前”收至同一行右侧小字，取消独立返回行。 / Left-align chapter details and place the compact return action at the right of the same row.
+
+- 修正阅读操作示例顶部/底部误显示黑底的问题；示例正文按实际字宽自动换行铺满阅读区域。 / Fix black guide bands and wrap sample prose to the reading width using actual font metrics.
+
+- 阅读控制进一步统一：真实阅读底图的点击分区示例、可拖动跳转滑块、四个主面板快捷按钮、书签一键切换、一对一快捷手势及阅读线样式预览。 / Refine reader guidance, release-to-seek progress, four panel actions, bookmark toggle, unique gesture bindings and selectable rule previews.
+
+- 重整阅读控制：统计常驻主面板，统一目录/书签/文字/版式/更多入口及系统文字白底列表；固定单击分区，手势快捷默认留空，支持可选双指操作与首次阅读引导。最小边距8px，移除晃动检测；快捷偏好加入兼容旧版本的配置备份。 / Rework reader controls with inline statistics, shared destinations and system-type white lists; fix tap zones, default shortcuts to unbound and add optional multitouch/help. Reduce the minimum margin to 8 px, remove shake detection and back up shortcut preferences with legacy compatibility.
+
+- 底栏未选中背景略加深，白色主体及选中按钮向灰色区域投下浅阴影，保持白区连续及图标原配色。 / Slightly darken inactive navigation and cast shallow shadows from the continuous white body and selected tab onto gray regions, retaining icon colors.
+
+- 文件页四个传输入口使用正文字号，较大字号下按语义分行。 / Use body type for transfer labels, wrapping semantically at larger sizes.
+- 记住最近8个WiFi名称和密码；点选已保存网络直接连接，遗忘只清除当前网络，旧单网络配置自动兼容。 / Remember eight WiFi profiles; selecting a saved SSID skips password entry. Forget only the selected profile and accept legacy single-network settings.
+- 坚果云同步进度最多每秒更新，使用灰阶差分且不累积整页清屏计数；保留手动强刷和必要的清残影刷新。 / Throttle cloud progress to once per second and use gray differences without advancing page-cleanup counters; retain explicit and necessary full refreshes.
+
+## 2026-10-11 · Codex · if-ink OS v0.1.0 开发版
+
+- 关机睡眠加入无操作自动休眠：关闭/1/3/5/10/30分钟，默认5分钟；真实输入重置、后台刷新不重置，传输及USB占用期间暂停，完成后重新计时。休眠前保存阅读，唤醒回原页，偏好纳入配置备份。 / Add idle sleep at off/1/3/5/10/30 minutes, default 5; input resets it while redraws do not. Suspend during transfers/USB and restart afterward; save reading before sleep, resume the page and back up preferences.
+
+- 日期与时间页新增状态栏日期开关和五种数字格式，选择后立即应用；时间始终显示，偏好随配置备份且兼容旧备份。 / Add a status-date toggle and five numeric date formats applied immediately; retain time and include preferences in configuration backups with legacy compatibility.
+
+- 加深分区线、淡化并延长图标列表条目线；文件页传输入口置于存储信息上方，移除根目录计数标题。底栏选中白底融入正文，未选中中灰底并加边界。 / Darken section lines and extend pale item separators; place file transfer above storage without a root-count heading. Active white navigation joins the body; inactive gray quarters carry boundaries.
+
+- 首页日历居中并固定位置/标准英文，最近阅读标题单行截断；图书页按字号切换3×3/2×2，首行书名位置固定。统一白底及状态栏字号，文件/设置移除模块框，内容/文件共用靠底部分页。 / Center and fix the home calendar with standard English labels; use single-line recent titles and size-dependent 3×3/2×2 shelves with fixed title anchors. Unify white surfaces and status type, remove file/settings module frames and share bottom pagination.
+
+- 系统文字改用居中模块标题及 S/M/L/XL 正圆按钮；统一标题/正文/注释三档，列表行高、分页与点击随字体度量适配，首页 XL 显示三条最近文档。状态栏、Banner及内容胶囊保留独立尺寸。 / Use centered module headings and circular S/M/L/XL controls; unify title/body/caption roles and measured list heights, paging and hits. XL shows three recent documents; keep status, banner and capsule independent.
+
+- 合并系统字体/字号为“系统文字”，提供小、标准、大、特大及TF字体选择；统一系统文字层级，放大文档标题，固定控件按空间收敛。旧字号/备份兼容，阅读字体与格言保持独立。 / Combine UI face and size into System text with four presets and TF fonts; normalize type roles and enlarge document titles with bounded controls. Preserve legacy settings/backups and independent reading/quote typography.
+- 新增电池管理，显示电量、电压、充电状态及24小时/七天实际电量记录；运行时十五分钟采样，TF双槽持久化，休眠空档留白，不提供分项耗电排名。 / Add battery management with charge, voltage, charging status and measured 24-hour/seven-day history; sample while awake every fifteen minutes, persist dual TF slots and leave sleep gaps blank without feature energy rankings.
+- 移除阅读票根锁屏入口与绘制，仅保留壁纸及内建默认画面回退。此轮为本地开发预览，不制作或发布刷机包。 / Remove ticket lock entry/rendering, retaining wallpaper with bundled-image fallback. This round remains a local development preview without installation packages or publication.
 
 ## 2026-10-10 · Codex · 插件独立发布
 

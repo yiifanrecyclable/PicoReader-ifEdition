@@ -25,6 +25,7 @@ esp_err_t usb_storage_stop(void){preview_usb=false;return ESP_OK;}
 bool read_pico_transfer_try_stop_if_idle(void){return true;}
 void read_pico_transfer_stop(void){preview_network.state=READ_PICO_TRANSFER_STOPPED;preview_network.network_ready=false;}
 esp_err_t read_pico_transfer_forget_wifi(void){preview_network.wifi_configured=false;preview_network.wifi_ssid[0]=0;return ESP_OK;}
+esp_err_t read_pico_transfer_select_saved_wifi(const char *ssid){return preview_network.wifi_configured&&!strcmp(ssid,preview_network.wifi_ssid)?ESP_OK:ESP_ERR_NOT_FOUND;}
 esp_err_t read_pico_transfer_save_wifi(const char *s,const char *p){preview_network.wifi_configured=true;snprintf(preview_network.wifi_ssid,33,"%s",s);return ESP_OK;}
 const app_desc_t app_dashboard={.title="首页",.detail="继续阅读与阅读记录"};
 const app_desc_t app_book={.title="内容",.detail="书籍与阅读"};
@@ -33,15 +34,14 @@ const app_desc_t app_device_settings={.title="设置",.detail="个性化设置"}
 const app_desc_t app_image={.title="图片",.detail="图片浏览"};
 const app_desc_t app_cloud={.title="坚果云",.detail="只读下载"};
 const app_desc_t app_transfer={.title="传输",.detail="模拟传输"};
-const app_desc_t app_weread={.title="微读",.detail="模拟微读界面"};
 static const app_desc_t *preview_apps[]={&app_dashboard,&app_book,&app_files,&app_device_settings,&app_image};
 int app_count(void){return 5;}
 const app_desc_t *app_at(int i){return i>=0&&i<5?preview_apps[i]:NULL;}
 const app_desc_t *app_home_page(void){return &app_dashboard;}
-int app_index_of(const app_desc_t *a){if(a==&app_weread)return 7;if(a==&app_cloud)return 6;if(a==&app_transfer)return 5;for(int i=0;i<5;++i)if(a==preview_apps[i])return i;return -1;}
-esp_err_t read_pico_sd_get_info(read_pico_sd_info_t *out){*out=(read_pico_sd_info_t){.present=true,.mounted=true,.capacity_bytes=8ULL<<30,.total_bytes=8ULL<<30,.free_bytes=7ULL<<30};return ESP_OK;}
+int app_index_of(const app_desc_t *a){if(a==&app_cloud)return 6;if(a==&app_transfer)return 5;for(int i=0;i<5;++i)if(a==preview_apps[i])return i;return -1;}
+esp_err_t read_pico_sd_get_info(read_pico_sd_info_t *out){*out=(read_pico_sd_info_t){.present=true,.mounted=true,.space_valid=true,.filesystem_bytes=8ULL<<30,.capacity_bytes=8ULL<<30,.total_bytes=8ULL<<30,.free_bytes=7ULL<<30};return ESP_OK;}
 esp_err_t read_pico_sd_mount(void){return ESP_OK;}
-const pmu_snapshot_t *read_pico_pmu_get(void){static const pmu_snapshot_t p={.status_ok=true,.soc_permille=850};return &p;}
+const pmu_snapshot_t *read_pico_pmu_get(void){static const pmu_snapshot_t p={.present=true,.status_ok=true,.flags=PMU_STATUS_BATTERY_VALID,.battery_mv=3950,.soc_permille=850};return &p;}
 void read_pico_transfer_get_status(read_pico_transfer_status_t *s){*s=preview_network;}
 esp_err_t read_pico_transfer_get_saved_wifi(char *s,bool *configured){snprintf(s,33,"%s",preview_network.wifi_ssid);*configured=preview_network.wifi_configured;return ESP_OK;}
 #include "book_store.h"

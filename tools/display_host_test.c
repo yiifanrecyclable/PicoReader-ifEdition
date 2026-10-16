@@ -22,6 +22,7 @@ static bool white_baseline, correct_target_at_draw;
 static const EpdWaveform *waveform_at_draw;
 static enum EpdDrawError water_result;
 static int water_calls;
+static int release_calls,release_failures,poweroffs;
 
 enum EpdDrawError e0470_page_turn(EpdiyHighlevelState* hl, EpdRect area, e0470_turn_dir_t dir) {
     assert(hl && area.width > 0 && dir == E0470_TURN_RTL);
@@ -34,7 +35,8 @@ void read_pico_epd_set_pclk(int mhz) { ++clocks; safe_clock = mhz; }
 void read_pico_epd_use_scan(read_pico_epd_scan_t scan) { last_scan = scan; }
 void epd_lcd_set_prefill_lines(int lines) { prefill = lines; }
 void epd_poweron(void) { ++powerons; }
-void epd_poweroff(void) {}
+void epd_poweroff(void) {++poweroffs;}
+bool read_pico_epd_release_drive(void){++release_calls;if(release_failures){--release_failures;return false;}return true;}
 void epd_clear(void) { assert(powerons > 0); ++clears; }
 int64_t esp_timer_get_time(void) { return 1000000; }
 
@@ -143,6 +145,16 @@ int main(void) {
         assert(clocks == 1 && safe_clock == DISPLAY_PCLK_SAFE_MHZ && display_pclk_mhz() == DISPLAY_PCLK_SAFE_MHZ);
         assert(powerons == 1 && clears == 1 && prefill == (bulk ? 127 : 32));
     }
+    // 无变化/错误输出也释放驱动；失败重试有节流，成功后不再访问总线，不额外推屏。
+    // Release after all output paths; throttle failure retries and stop on success without extra scans.
+    int release_before=release_calls,draw_before=draws;
+    release_failures=2;rails_keepalive();assert(release_calls==release_before+1);
+    rails_idle_check(1049);assert(release_calls==release_before+1);
+    rails_idle_check(1050);assert(release_calls==release_before+2);
+    rails_idle_check(1099);assert(release_calls==release_before+2);
+    rails_idle_check(1100);assert(release_calls==release_before+3);
+    rails_idle_check(1150);assert(release_calls==release_before+3&&draws==draw_before);
+    int prior_off=poweroffs;rails_idle_check(9000);assert(poweroffs==prior_off+1);
     // 缺波形直接沿用 GL16；扫描中断则从白底重建整屏目标，不把半途像素当作已完成。
     // Missing phases use GL16; an interrupted scan rebuilds the target from white.
     display_set_bulk_io(false);

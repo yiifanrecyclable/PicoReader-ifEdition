@@ -13,6 +13,7 @@
 #include "freertos/task.h"
 
 static bool test_present;
+static esp_err_t detect_error,space_error;
 static int mount_calls, unmount_calls;
 static sdmmc_card_t test_card = {
     .cid.name = "TEST64G", .csd.capacity = 1024, .csd.sector_size = 512,
@@ -23,6 +24,7 @@ static sdmmc_card_t test_card = {
 #undef mkdir
 
 bool read_pico_sd_present(void) { return test_present; }
+esp_err_t read_pico_sd_detect(bool *present){*present=test_present;return detect_error;}
 const char* esp_err_to_name(esp_err_t err) { (void)err; return "test"; }
 BaseType_t xTaskCreate(void (*fn)(void*), const char* name, int stack,
                        void* arg, int priority, void* handle) {
@@ -56,7 +58,7 @@ esp_err_t esp_vfs_fat_info(const char* path, uint64_t* total, uint64_t* free_byt
     (void)path;
     *total = 1024 * 512;
     *free_bytes = 768 * 512;
-    return ESP_OK;
+    return space_error;
 }
 
 int main(void) {
@@ -74,11 +76,19 @@ int main(void) {
 
     test_present = false;
     assert(read_pico_sd_get_info(&info) == ESP_ERR_NOT_FOUND);
+    // 拔卡后迟到挂载结果与未知检测不能复活旧句柄。/ A late probe plus unknown detection cannot revive a removed mount.
+    detect_error=ESP_ERR_TIMEOUT;
+    read_pico_sd_info_t late={.present=true,.mounted=true,.error=ESP_OK};publish_info(&late);
+    assert(read_pico_sd_get_info(&info)==ESP_ERR_NOT_FOUND&&!info.mounted&&!info.present);
+    detect_error=ESP_OK;
     test_present = true;
     assert(read_pico_sd_start_probe() == ESP_ERR_INVALID_STATE);
     assert(read_pico_sd_remount() == ESP_ERR_NOT_FINISHED);
     assert(read_pico_sd_get_info(&info) == ESP_OK);
     assert(info.mounted && mount_calls == 2 && unmount_calls == 1);
+    detect_error=ESP_ERR_TIMEOUT;
+    assert(read_pico_sd_get_info(&info)==ESP_OK&&info.mounted&&info.present);
+    detect_error=ESP_OK;
     puts("sd_probe: empty boot, insertion, removal and explicit remount passed");
     return 0;
 }

@@ -210,7 +210,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     const bool detail = s_view_storage && s_selected >= 0 && (unsigned)s_selected < s_view.count;
     const bool secondary = detail || s_batch_panel;
     ui_clear_page(fb);
-    epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_NAV_TOP}, 0xe0, fb);
+    epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_NAV_TOP}, UI_GRAY_WHITE, fb);
     ui_nav_status(fb); ui_nav_back(fb, 36, 79);
     ui_text_vc(fb, 342, 107, 34, s_batch_panel ? "批量下载" : detail ? "书籍下载" : "微读传书", EPD_DRAW_ALIGN_CENTER, false);
     if (secondary) {
@@ -423,9 +423,11 @@ static app_redraw_t on_key(app_ctx_t *ctx, int key) {
 }
 static app_redraw_t on_key_long(app_ctx_t *ctx, int key) { (void)ctx; return key == UI_KEY_2 ? APP_REDRAW_FULL : APP_REDRAW_NONE; }
 static bool menu_enabled(app_ctx_t *ctx) { (void)ctx; return false; }
+static bool prevent_idle_sleep(app_ctx_t *ctx){(void)ctx;return s_view_storage&&s_view.active;}
 const app_desc_t app_weread = {
     .title = "微读传书", .detail = "微信读书下载", .enter_full = true, .owns_keys = true,
     .menu_handle_enabled = menu_enabled, .on_enter = on_enter, .on_exit = weread_on_exit,
+    .prevent_idle_sleep = prevent_idle_sleep,
     .on_media_lost = on_media_lost, .on_media_ready = on_media_ready, .on_before_lock = on_before_lock,
     .render = render, .on_gesture = on_gesture, .on_key = on_key, .on_key_long = on_key_long, .on_tick = on_tick,
 };

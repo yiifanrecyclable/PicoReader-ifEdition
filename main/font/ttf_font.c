@@ -82,7 +82,6 @@ static void ttf_free(void* ptr, void* userdata) {
 static const char* TAG = "ttf_font";
 
 static const char* const k_font_dirs[] = {
-    "/sdcard/assets/fonts",
     NULL,
 };
 
@@ -123,56 +122,8 @@ typedef struct {
 // several milliseconds. 32×4KB PSRAM slots keep recent sectors. Before a
 // line is drawn, needed blocks are sorted and merged. If glyf/gvar fit,
 // they are streamed into PSRAM at open so a cold start does not touch the card.
-static int font_fd = -1;
-static const uint8_t* font_mem;
-static uint32_t font_mem_len;
-static uint32_t font_file_pos = UINT32_MAX;
-static char font_path[TTF_FONT_PATH_MAX];
-
 extern const uint8_t builtin_ttf_start[] asm("_binary_builtin_ttf_start");
 extern const uint8_t builtin_ttf_end[] asm("_binary_builtin_ttf_end");
-static int packed_root = -1;
-static int packed_weight = -1;
-static uint32_t file_glyf_off;
-static uint32_t file_glyf_len;
-static uint8_t* file_loca;
-static uint32_t file_loca_len;
-static bool loca_long;
-static int num_glyphs;
-static uint8_t* glyf_ram;
-static uint32_t glyf_ram_off;
-static uint32_t glyf_ram_len;
-static uint8_t* gvar_ram;
-static uint32_t gvar_ram_off;
-static uint32_t gvar_ram_len;
-static uint8_t* io_data;
-static uint8_t* io_run_buf;
-static uint32_t io_base[TTF_IO_SLOTS];
-static uint16_t io_fill[TTF_IO_SLOTS];
-static uint16_t io_age[TTF_IO_SLOTS];
-static uint16_t io_clock;
-static uint32_t touch_blocks[TTF_PREFETCH_MAX];
-static int touch_n;
-
-static uint8_t* font_data;
-static uint32_t work_loca_off;
-static uint32_t work_glyf_off;
-static stbtt_fontinfo font_info;
-static bool font_ready;
-static ttf_size_metrics_t size_metrics[2];
-static int raw_ascent_units;
-static int current_weight = TTF_WGHT_DEF;
-static int wght_min = TTF_WGHT_MIN;
-static int wght_def = TTF_WGHT_DEF;
-static int wght_max = TTF_WGHT_MAX;
-static uint32_t file_gvar_off;
-static uint32_t file_gvar_len;
-static uint32_t gvar_data_array_off;
-static uint32_t* gvar_glyph_off;
-static int16_t shared_tuple_f2dot14[8];
-static int shared_tuple_count;
-static int gvar_axis_count;
-static bool gvar_ready;
 typedef struct {
     uint8_t slice[TTF_GVAR_SLICE_MAX];
     int16_t x[TTF_MAX_PTS];
@@ -191,12 +142,117 @@ typedef struct {
     uint16_t pts[TTF_MAX_VAR_PTS];
     uint16_t shared_pts[TTF_MAX_VAR_PTS];
 } ttf_work_t;
-
 static ttf_work_t* work;
-static glyph_entry_t* cache_buckets[TTF_CACHE_BUCKETS];
-static glyph_entry_t* lru_head;
-static glyph_entry_t* lru_tail;
-static size_t cache_bytes;
+// 两个独立有界字体上下文；光栅工作区仍共用，由调用方串行化。/ Two bounded faces share raster scratch; callers serialize drawing.
+typedef struct {
+    int state_font_fd;
+    const uint8_t* state_font_mem;
+    uint32_t state_font_mem_len;
+    uint32_t state_font_file_pos;
+    char state_font_path[TTF_FONT_PATH_MAX];
+    int state_packed_root;
+    int state_packed_weight;
+    uint32_t state_file_glyf_off;
+    uint32_t state_file_glyf_len;
+    uint8_t* state_file_loca;
+    uint32_t state_file_loca_len;
+    bool state_loca_long;
+    int state_num_glyphs;
+    uint8_t* state_glyf_ram;
+    uint32_t state_glyf_ram_off;
+    uint32_t state_glyf_ram_len;
+    uint8_t* state_gvar_ram;
+    uint32_t state_gvar_ram_off;
+    uint32_t state_gvar_ram_len;
+    uint8_t* state_io_data;
+    uint8_t* state_io_run_buf;
+    uint32_t state_io_base[TTF_IO_SLOTS];
+    uint16_t state_io_fill[TTF_IO_SLOTS];
+    uint16_t state_io_age[TTF_IO_SLOTS];
+    uint16_t state_io_clock;
+    uint32_t state_touch_blocks[TTF_PREFETCH_MAX];
+    int state_touch_n;
+    uint8_t* state_font_data;
+    uint32_t state_work_loca_off;
+    uint32_t state_work_glyf_off;
+    stbtt_fontinfo state_font_info;
+    bool state_font_ready;
+    ttf_size_metrics_t state_size_metrics[2];
+    int state_raw_ascent_units;
+    int state_current_weight;
+    int state_wght_min;
+    int state_wght_def;
+    int state_wght_max;
+    uint32_t state_file_gvar_off;
+    uint32_t state_file_gvar_len;
+    uint32_t state_gvar_data_array_off;
+    uint32_t* state_gvar_glyph_off;
+    int16_t state_shared_tuple_f2dot14[8];
+    int state_shared_tuple_count;
+    int state_gvar_axis_count;
+    bool state_gvar_ready;
+    glyph_entry_t* state_cache_buckets[TTF_CACHE_BUCKETS];
+    glyph_entry_t* state_lru_head;
+    glyph_entry_t* state_lru_tail;
+    size_t state_cache_bytes;
+} ttf_context_t;
+static ttf_context_t s_font_contexts[2]={{.state_font_fd=-1,.state_font_file_pos=UINT32_MAX,.state_packed_root=-1,.state_packed_weight=-1,.state_current_weight=TTF_WGHT_DEF,.state_wght_min=TTF_WGHT_MIN,.state_wght_def=TTF_WGHT_DEF,.state_wght_max=TTF_WGHT_MAX},{.state_font_fd=-1,.state_font_file_pos=UINT32_MAX,.state_packed_root=-1,.state_packed_weight=-1,.state_current_weight=TTF_WGHT_DEF,.state_wght_min=TTF_WGHT_MIN,.state_wght_def=TTF_WGHT_DEF,.state_wght_max=TTF_WGHT_MAX}};
+static ttf_context_t *s_font_context=&s_font_contexts[0];
+#define font_fd (s_font_context->state_font_fd)
+#define font_mem (s_font_context->state_font_mem)
+#define font_mem_len (s_font_context->state_font_mem_len)
+#define font_file_pos (s_font_context->state_font_file_pos)
+#define font_path (s_font_context->state_font_path)
+#define packed_root (s_font_context->state_packed_root)
+#define packed_weight (s_font_context->state_packed_weight)
+#define file_glyf_off (s_font_context->state_file_glyf_off)
+#define file_glyf_len (s_font_context->state_file_glyf_len)
+#define file_loca (s_font_context->state_file_loca)
+#define file_loca_len (s_font_context->state_file_loca_len)
+#define loca_long (s_font_context->state_loca_long)
+#define num_glyphs (s_font_context->state_num_glyphs)
+#define glyf_ram (s_font_context->state_glyf_ram)
+#define glyf_ram_off (s_font_context->state_glyf_ram_off)
+#define glyf_ram_len (s_font_context->state_glyf_ram_len)
+#define gvar_ram (s_font_context->state_gvar_ram)
+#define gvar_ram_off (s_font_context->state_gvar_ram_off)
+#define gvar_ram_len (s_font_context->state_gvar_ram_len)
+#define io_data (s_font_context->state_io_data)
+#define io_run_buf (s_font_context->state_io_run_buf)
+#define io_base (s_font_context->state_io_base)
+#define io_fill (s_font_context->state_io_fill)
+#define io_age (s_font_context->state_io_age)
+#define io_clock (s_font_context->state_io_clock)
+#define touch_blocks (s_font_context->state_touch_blocks)
+#define touch_n (s_font_context->state_touch_n)
+#define font_data (s_font_context->state_font_data)
+#define work_loca_off (s_font_context->state_work_loca_off)
+#define work_glyf_off (s_font_context->state_work_glyf_off)
+#define font_info (s_font_context->state_font_info)
+#define font_ready (s_font_context->state_font_ready)
+#define size_metrics (s_font_context->state_size_metrics)
+#define raw_ascent_units (s_font_context->state_raw_ascent_units)
+#define current_weight (s_font_context->state_current_weight)
+#define wght_min (s_font_context->state_wght_min)
+#define wght_def (s_font_context->state_wght_def)
+#define wght_max (s_font_context->state_wght_max)
+#define file_gvar_off (s_font_context->state_file_gvar_off)
+#define file_gvar_len (s_font_context->state_file_gvar_len)
+#define gvar_data_array_off (s_font_context->state_gvar_data_array_off)
+#define gvar_glyph_off (s_font_context->state_gvar_glyph_off)
+#define shared_tuple_f2dot14 (s_font_context->state_shared_tuple_f2dot14)
+#define shared_tuple_count (s_font_context->state_shared_tuple_count)
+#define gvar_axis_count (s_font_context->state_gvar_axis_count)
+#define gvar_ready (s_font_context->state_gvar_ready)
+#define cache_buckets (s_font_context->state_cache_buckets)
+#define lru_head (s_font_context->state_lru_head)
+#define lru_tail (s_font_context->state_lru_tail)
+#define cache_bytes (s_font_context->state_cache_bytes)
+// 两份字形位图合计上限仍为1.5MiB，界面字体不整表映射。/ Keep the combined glyph budget at 1.5MiB; UI does not map whole tables.
+static size_t ttf_cache_budget(void){return s_font_context==&s_font_contexts[1]?256u*1024u:1280u*1024u;}
+#ifdef PICO_HOST_SIMULATOR
+unsigned ttf_sim_font_loads;
+#endif
 static bool bench_on;
 static ttf_bench_stats_t bench;
 static int64_t bench_start_us;
@@ -476,6 +532,7 @@ static bool try_map_table(
     uint32_t off, uint32_t len, uint8_t** ram, uint32_t* ram_off,
     uint32_t* ram_len, const char* name
 ) {
+    if (s_font_context==&s_font_contexts[1])return false;
     if (*ram != NULL || len < 4096 || len > TTF_MAP_MAX) return false;
     size_t largest = heap_caps_get_largest_free_block(
         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
@@ -1661,7 +1718,7 @@ static void cache_evict_one(void) {
 }
 
 static void cache_reserve(size_t extra) {
-    while (lru_tail != NULL && cache_bytes + extra > TTF_CACHE_LIMIT) {
+    while (lru_tail != NULL && cache_bytes + extra > ttf_cache_budget()) {
         cache_evict_one();
     }
 }
@@ -1862,7 +1919,7 @@ static void abandon_font_source(void) {
     font_mem_len = 0;
 }
 
-void ttf_font_unload(void) {
+static void unload_active_font(void) {
     font_ready = false;
     cache_reset();
     io_unmap();
@@ -1888,7 +1945,21 @@ void ttf_font_unload(void) {
     memset(size_metrics, 0, sizeof(size_metrics));
 }
 
+// 回收可重建字形，保持双槽字体及字重，供开书和插图内存让路。/ Reclaim rebuildable glyphs without unloading faces or weights.
+size_t ttf_font_cache_clear_all(void) {
+    ttf_context_t *previous=s_font_context;size_t reclaimed=0;
+    for(unsigned i=0;i<2;++i){s_font_context=&s_font_contexts[i];reclaimed+=cache_bytes;cache_reset();}
+    s_font_context=previous;return reclaimed;
+}
+void ttf_font_unload(void){
+    ttf_context_t *previous=s_font_context;
+    for(unsigned i=0;i<2;++i){s_font_context=&s_font_contexts[i];unload_active_font();heap_caps_free(io_data);io_data=NULL;heap_caps_free(io_run_buf);io_run_buf=NULL;font_path[0]=0;}
+    s_font_context=previous;
+}
 static esp_err_t load_opened_font(void) {
+#ifdef PICO_HOST_SIMULATOR
+    ++ttf_sim_font_loads;
+#endif
     font_file_pos = UINT32_MAX;
     io_ensure();
     io_reset();
@@ -1952,7 +2023,7 @@ static esp_err_t load_opened_font(void) {
 }
 
 esp_err_t ttf_font_open_builtin(void) {
-    ttf_font_unload();
+    unload_active_font();
     if (!ensure_work()) return ESP_ERR_NO_MEM;
 
     font_mem = builtin_ttf_start;
@@ -1973,7 +2044,7 @@ esp_err_t ttf_font_open(const char* path) {
     bool had = font_ready;
     bool prev_file = had && !ttf_font_path_is_builtin(prev);
 
-    ttf_font_unload();
+    unload_active_font();
     if (!ensure_work()) return ESP_ERR_NO_MEM;
 
     font_fd = open_font_file(path);
@@ -1989,7 +2060,7 @@ esp_err_t ttf_font_open(const char* path) {
     esp_err_t err = load_opened_font();
     if (err != ESP_OK) {
         if (prev_file && strcmp(prev, path) != 0) {
-            ttf_font_unload();
+            unload_active_font();
             font_fd = try_open_path(prev);
             if (font_fd >= 0 && load_opened_font() == ESP_OK) return err;
         }
@@ -1998,6 +2069,18 @@ esp_err_t ttf_font_open(const char* path) {
     return ESP_OK;
 }
 
+esp_err_t ttf_font_select_context(bool system,const char *path){
+    const char *resolved=ttf_font_path_is_builtin(path)?TTF_FONT_BUILTIN:path;
+    ttf_context_t *previous=s_font_context;
+    ttf_context_t *target=&s_font_contexts[system?1:0];
+    // 同一路径直接共享阅读槽，不复制文件映射或字形。/ Share the reader face when both settings use the same file.
+    if(system&&s_font_contexts[0].state_font_ready&&!strcmp(s_font_contexts[0].state_font_path,resolved))target=&s_font_contexts[0];
+    s_font_context=target;
+    if(font_ready&&!strcmp(font_path,resolved))return ESP_OK;
+    esp_err_t err=ttf_font_open(resolved);
+    if(!font_ready)s_font_context=previous;
+    return err;
+}
 esp_err_t ttf_font_init(void) {
     if (font_ready) return ESP_OK;
     const char* path = app_settings_font_path();

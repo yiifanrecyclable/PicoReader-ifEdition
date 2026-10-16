@@ -41,6 +41,8 @@ extern "C" {
 
 void rails_keepalive(void);
 void rails_idle_check(int64_t now_ms);
+/// 睡眠/关机前同步释放驱动并断电，不依赖后续主循环重试。/ Synchronously release drive and power off before sleep, without relying on future loop retries.
+void display_poweroff(void);
 
 /// 大量文件I/O期间增加扫描预填，调用方离开时恢复。/ Increase scan prefill during bulk file I/O; caller restores on exit.
 void display_set_bulk_io(bool active);

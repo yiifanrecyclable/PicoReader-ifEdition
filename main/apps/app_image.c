@@ -183,7 +183,8 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         int idx = s_page * IMAGE_ROWS + row;
         if (idx >= s_count) break;
         EpdRect box = {36, 214 + row * 101, 612, 84};
-        ui_fill_round_rect(fb, box, 17, UI_GRAY_WHITE);
+        epd_fill_rect(box,UI_GRAY_WHITE,fb);
+        epd_fill_rect((EpdRect){box.x,box.y+box.height,box.width,2},UI_GRAY_ITEM_LINE,fb);
         ui_text_vc(fb, 58, box.y + 42, 24, s_items[idx].name, EPD_DRAW_ALIGN_LEFT, false);
         ui_text_vc(fb, 623, box.y + 42, 25, "›", EPD_DRAW_ALIGN_RIGHT, false);
     }

@@ -8,11 +8,11 @@ const path = require('node:path');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
-const site = process.argv[2] || path.join(root, 'docs');
-const folder = path.join(site, 'webflash/0.3.3-rc83-if.8');
+const site = process.argv[2] || path.join(root, 'public/if-edition');
+const folder = path.join(site, 'webflash/0.1.1');
 const manifest = JSON.parse(fs.readFileSync(path.join(folder, 'manifest.json')));
 const dialog = fs.readFileSync(path.join(site, 'webflash/vendor/esp-web-tools-if-v1/install-dialog-im156JnI.js'), 'utf8');
-const original = fs.readFileSync(path.join(root, 'tools/webflash-upstream/install-dialog-original.js'), 'utf8');
+const original = fs.readFileSync(path.join(root, 'flash/vendor/web/install-dialog-im156JnI.js'), 'utf8');
 const originalBranch = 'this._manifest.new_install_prompt_erase?this._state="ASK_ERASE":this._startInstall(!0)';
 assert.equal(original.split(originalBranch).length - 1, 2);
 assert.equal(dialog, original.replaceAll(originalBranch, 'this._startInstall(!1)').replace(
@@ -45,7 +45,7 @@ for (const [i, part] of manifest.builds[0].parts.entries()) {
 const source = fs.readFileSync(path.join(site, 'webflash/installer.js'), 'utf8');
 async function entry(change = {}) {
   let imported = 0, serialRequested = 0;
-  const button = { hidden: true, getAttribute: () => './webflash/0.3.3-rc83-if.8/manifest.json' };
+  const button = { hidden: true, getAttribute: () => './webflash/0.1.1/manifest.json' };
   const status = { textContent: '' };
   const config = structuredClone(manifest);
   if (change.mutate) change.mutate(config);

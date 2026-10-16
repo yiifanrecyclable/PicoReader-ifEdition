@@ -1,3 +1,4 @@
+#include <stdatomic.h>
 /*
  * SPDX-FileCopyrightText: 2026 mindreset
  * SPDX-License-Identifier: Apache-2.0
@@ -9,11 +10,15 @@
  * Book shelf, reader, TOC and progress; book modules own parsing and pagination.
  *
  * 冻结：Phase4b统一手势入口并接管三键为上页/工具条/下页；工具条保留强刷。屏幕翻页在抬起提交，不画按下态。
- * 晃动实验默认关，只翻下一页；离页关闭AOI2并休眠。render只绘图。
+ * 用户修订：移除晃动翻页及其加速度计生命周期；render只绘图。
  * 预渲染回调返回前收齐，避免菜单/锁屏绕过页内TTF锁。
  * 普通翻页只刷新正文与页脚；手动或周期清残影整屏全刷。
- * 用户修订：中键短按打开/关闭工具栏，正文中间切换全屏；普通阅读页左上角返回来源。
- * 长按中间圆圈键默认回首页，可在阅读设置改为整屏全刷；阅读页不画右下角菜单图标。
+ * 用户2026-10-16修订：全屏全局记忆，像素边距和细段距独立调节，快捷手势限8项。
+ * User revision: persist full screen, decouple pixel margins and retain eight shortcuts.
+ * 用户2026-10-15修订：圆键或正文中央打开统一控制面板；左右轻点固定翻页，可选手势默认留空。
+ * 长按圆键固定回首页，电源键锁屏；阅读控制采用系统文字和白底列表。
+ * 用户修订：主面板滑块松手跳转、四个快捷按钮；书签入口切换当前书签，手势与功能一对一。
+ * User revision: release-to-seek progress, four panel actions, bookmark toggle and unique gesture assignments.
  * 用户授权基础管理：长按书架先看完整详情，清进度与删文件分别确认；失败保留待重试记录，不自动回收其他书进度。
  * 用户修订：图书详情只在原书架上显示浮动卡片，置顶为单本操作并独立持久保存。
  * User revision: Book details are a modal over the original shelf; single-book pins persist independently.
@@ -33,16 +38,16 @@
  * 用户修订：阅读进度条无外伸刻度并使用圆角；继续阅读区显示最近书籍封面。
  * 用户修订：书架只在封面下显示书名；首次打开时先显示书架，再逐本生成封面缓存。
  * 用户修订：字号和间距重排只保存最终进度，字号使用现有闲置灰阶整理。
- * 用户修订：阅读设置滑杆可拖动并在松手后重排；字体选择可纵向翻页；统计入口显示真实明细与近30天数据。
- * 用户修订：默认翻页保持原刷新规则；刷新设置可选真实错相 GL16 水波纹，阅读字体面板保持紧凑。
+ * 用户修订：阅读控制使用系统文字；滑杆松手重排；统计常驻主面板，不显示最近30天入口。
+ * 用户修订：水波纹保持原实现；统一阅读控制面板，滑动与双指快捷操作默认不绑定。
  * 用户修订：目录由独立模块整页绘制与命中；目录标题清理换行并限制为单行，翻页不再沿用书架的局部刷新。
  * 用户修订：书架封面抽出与取消仅驱动变化像素，保持灰阶，不在点按时强制清屏。
  * Frozen: Phase4b uses the shared gesture entry and owns previous/tools/next keys; the toolbar keeps full refresh. Screen turns commit on release without pressed decoration.
- * Shake is experimental, off by default, forward only; exit disables AOI2 and sleeps it. Render only paints.
+ * User revision 2026-10-15: remove shake turning and its sensor lifecycle. Render only paints.
  * Join preparation before returning callbacks so menus/lock cannot race the page-local TTF lock.
  * Ordinary turns refresh only body and footer; manual and periodic ghost cleanup refresh the entire screen.
- * User revision: the middle key toggles tools on short release; a center body tap toggles full screen; the normal reader's top-left control returns to the opening source.
- * A middle-circle hold returns Home by default or refreshes the whole screen when enabled in reader settings. The reader has no bottom-right menu icon.
+ * User revision: the circle key or center tap opens controls; side taps are fixed page turns. Optional gestures default unbound; the top-left control returns to the opening source.
+ * A circle hold returns Home; power locks. Reader control lists use system typography, white surfaces and shared destinations.
  * User-authorized management shows full details before separate clear/delete confirmations; retain failed saves for retry without pruning other books.
  * User revision: single-book actions use a shelf dialog; full management is for batches. Paging/sorting preserve selection; filtering/applied search and rescanning clear it.
  * Invalidate failed progress only for changed paths; retain deletion cleanup retries across page exits for this boot.
@@ -56,7 +61,7 @@
  * User revision: the reader bar is rounded without protruding ticks; continue reading displays the latest cover.
  * User revision: the shelf shows titles without author rows; first visits paint the shelf before filling cached covers.
  * User revision: size and spacing reflow saves final progress only; size uses the existing idle grayscale settle.
- * User revision: reader sliders drag and reflow on release; font selection pages vertically; statistics entries show real details and recent-30-day data.
+ * User revision: controls use system type, sliders reflow on release and statistics stay on the main panel without a recent-30-days entry.
  * User revision: default turns keep their refresh policy; Refresh Settings may enable staggered GL16 water turns, while the font sheet stays compact.
  * User revision: a standalone module owns full-page TOC rendering and hit testing; normalized single-line titles cannot leak into another row.
  * 用户调整：书架点按不提起封面、不绘制按下反馈，松手直接打开图书。
@@ -106,6 +111,7 @@
 #include "read_pico_transfer.h"
 #include "read_pico_search.h"
 #include "settings.h"
+#include "reader_input.h"
 #include "ttf_font.h"
 #include "ui_kit.h"
 #include "ui_text_input.h"
@@ -123,20 +129,18 @@
 #define READER_SHEET_BACK_PX 34
 
 #define BOOK_ROWS 13
-#define BOOK_GRID_ROWS 9
-#define BOOK_BULK_ROWS 6
+
+#define BOOK_BULK_ROWS (management_rows())
+static int management_rows(void);
+static int document_rows(void);
 #define BOOK_PX_MIN 36
 #define BOOK_PX_MAX 72
 #define BOOK_PX_STEP 4
-#define BOOK_MARGIN_MIN 24
+#define BOOK_MARGIN_MIN 8
 #define BOOK_MARGIN_MAX 60
 #define BOOK_MARGIN_CHOICES (BOOK_MARGIN_MAX - BOOK_MARGIN_MIN + 1)
-#define BOOK_SHAKE_THS_MG 192
-#define BOOK_SHAKE_DUR 2
 #define BOOK_TOOL_COUNT 5
-#define BOOK_FONT_PAGE 9
 #define BOOKMARK_MAX 24
-#define BOOKMARK_ROWS 6
 
 typedef enum { SHELF, READING, TOC, MANAGE, BULK, IMPORT, SEARCH, EDIT, DOCUMENTS, DOCUMENT_BULK } book_view_t;
 static book_view_t s_view;
@@ -153,6 +157,7 @@ typedef enum {
     READER_PANEL_REFRESH_SETTINGS,
     READER_PANEL_TURN_SETTINGS,
     READER_PANEL_MARKDOWN_SIZES,
+    READER_PANEL_SHORTCUTS, READER_PANEL_BINDING, READER_PANEL_HELP,
 } reader_panel_t;
 typedef struct {
     char name[256];
@@ -237,7 +242,7 @@ static void scan_documents(app_ctx_t *ctx) {
     s_document_starred_only=false;
     if(s_document_query[0]){size_t n=0;for(size_t i=0;i<s_document_count;++i)if(read_pico_search_match(s_documents[i].name,s_document_query)||s_documents[i].cleanup_pending)s_documents[n++]=s_documents[i];s_document_count=n;}
     if(s_document_count>1)qsort(s_documents,s_document_count,sizeof(*s_documents),compare_documents);
-    int rows=s_view==DOCUMENT_BULK?BOOK_BULK_ROWS:BOOK_ROWS;
+    int rows=s_view==DOCUMENT_BULK?BOOK_BULK_ROWS:document_rows();
     if(ctx->leaf<0||(size_t)ctx->leaf*rows>=s_document_count)ctx->leaf=0;
 }
 // 一体式双段胶囊，副标题与点击区域共用；墨水屏直接切换，不做滑动动画。
@@ -255,39 +260,46 @@ static void draw_content_tabs(uint8_t *fb,bool documents){
         ui_text_fixed_vc_gray(fb,r.x+r.width/2,140,23,i?"Markdown":"EPUB/TXT",EPD_DRAW_ALIGN_CENTER,fg,bg);
     }
 }
-static EpdRect document_row(int row){return (EpdRect){36,224+row*91,612,80};}
+static int document_row_step(void) { return ui_list_row_height(false)+22; }
+static int document_rows(void) { return ui_list_visible_rows(224,1042,document_row_step()); }
+static EpdRect document_row(int row){return (EpdRect){36,224+row*document_row_step(),612,document_row_step()-10};}
 static EpdRect content_action(int i){return (EpdRect){442+i*109,94,97,54};}
 static void library_button(uint8_t *fb,EpdRect r,const char *label,bool active){
     ui_fill_round_rect(fb,r,16,active?UI_GRAY_BLACK:UI_GRAY_WHITE);
     ui_draw_round_rect(fb,r,16,0x70);
-    ui_text_vc(fb,r.x+r.width/2,r.y+r.height/2,r.width<120?20:24,label,EPD_DRAW_ALIGN_CENTER,active);
+    ui_text_vc(fb,r.x+r.width/2,r.y+r.height/2,UI_TEXT_BODY,label,EPD_DRAW_ALIGN_CENTER,active);
 }
 static void draw_content_actions(uint8_t *fb) {
     for(int i=0;i<2;++i){EpdRect r=content_action(i);library_button(fb,r,i?"排序":"管理",false);}
 }
 static void draw_documents(app_ctx_t *ctx,uint8_t *fb){
-    ui_clear_page(fb);epd_fill_rect((EpdRect){0,0,UI_LOCK_WIDTH,UI_NAV_TOP},0xe0,fb);ui_nav_status(fb);draw_content_tabs(fb,true);
+    ui_clear_page(fb);epd_fill_rect((EpdRect){0,0,UI_LOCK_WIDTH,UI_NAV_TOP},UI_GRAY_WHITE,fb);ui_nav_status(fb);draw_content_tabs(fb,true);
     ui_hairline(fb,195,36,612,0x68);
     draw_content_actions(fb);
     if(!s_document_count)ui_text_vc(fb,342,408,27,s_document_query[0]?"没有匹配的文档":"还没有 Markdown 文档",EPD_DRAW_ALIGN_CENTER,false);
-    for(int row=0;row<BOOK_ROWS;row++){size_t i=(size_t)ctx->leaf*BOOK_ROWS+row;if(i>=s_document_count)break;
-        document_entry_t *d=&s_documents[i];EpdRect r=document_row(row);ui_fill_round_rect(fb,r,14,UI_GRAY_WHITE);
+    for(int row=0;row<document_rows();row++){size_t i=(size_t)ctx->leaf*document_rows()+row;if(i>=s_document_count)break;
+        document_entry_t *d=&s_documents[i];EpdRect r=document_row(row);epd_fill_rect(r,UI_GRAY_WHITE,fb);
         char title[256];snprintf(title,sizeof(title),"%s",d->name);char *ext=strrchr(title,'.');if(ext)*ext=0;
         // 按 UTF-8 边界截断，日期与进度区域固定保留。
         // Trim at UTF-8 boundaries and reserve fixed date/progress columns.
-        size_t n=strlen(title);while(n&&ui_text_fixed_width_px(27,title)>375){do{n--;}while(n&&((unsigned char)title[n]&0xc0)==0x80);title[n]=0;}
-        ui_text_fixed(fb,52,r.y+26,27,title,EPD_DRAW_ALIGN_LEFT,false);
-        if(d->pinned)ui_text_fixed(fb,52,r.y+59,16,"置顶",EPD_DRAW_ALIGN_LEFT,false);
-        ui_text_fixed(fb,592,r.y+32,18,d->cleanup_pending?"清理待重试":d->date[0]?d->date:"未导入",EPD_DRAW_ALIGN_RIGHT,false);
+        int title_px=ui_text_effective_px(UI_TEXT_BODY);
+        int date_px=ui_text_effective_px(UI_TEXT_CAPTION);
+        const char *date_label=d->cleanup_pending?"清理待重试":d->date[0]?d->date:"未导入";
+        int date_width=ui_text_fixed_width_px(date_px,date_label);
+        int title_width=592-date_width-52-36;
+        size_t n=strlen(title);while(n&&ui_text_fixed_width_px(title_px,title)>title_width){do{n--;}while(n&&((unsigned char)title[n]&0xc0)==0x80);title[n]=0;}
+        ui_text_fixed_vc(fb,52,r.y+r.height/2,title_px,title,EPD_DRAW_ALIGN_LEFT,false);
+        if(d->pinned){epd_fill_rect((EpdRect){592-date_width-23,r.y+r.height/2-9,10,4},0x58,fb);epd_fill_rect((EpdRect){592-date_width-19,r.y+r.height/2-5,2,12},0x58,fb);epd_fill_triangle(592-date_width-22,r.y+r.height/2-1,592-date_width-14,r.y+r.height/2-1,592-date_width-18,r.y+r.height/2-6,0x58,fb);}
+        ui_text_fixed_vc(fb,592,r.y+r.height/2,date_px,date_label,EPD_DRAW_ALIGN_RIGHT,false);
         unsigned pct=d->pct;if(pct>100)pct=100;
         // 十二像素小圆环；灰底表示未读，深色弧表示阅读比例。
         // Small pale ring with a dark arc proportional to reading progress.
         for(int y=-12;y<=12;y++)for(int x=-12;x<=12;x++){int radius=x*x+y*y;if(radius<64||radius>144)continue;
             double angle=atan2((double)x,(double)-y);if(angle<0)angle+=6.283185307179586;
-            epd_draw_pixel(622+x,r.y+40+y,angle<6.283185307179586*pct/100?0x00:0xc0,fb);}
+            epd_draw_pixel(622+x,r.y+r.height/2+y,angle<6.283185307179586*pct/100?0x00:0xc0,fb);}
     }
-    char pagination[48];snprintf(pagination,sizeof(pagination),"%d / %u",ctx->leaf+1,(unsigned)(s_document_count?(s_document_count+8)/9:1));
-    ui_text_fixed(fb,342,1055,20,pagination,EPD_DRAW_ALIGN_CENTER,false);ui_nav_draw(fb,1);
+    int pages=s_document_count?(int)((s_document_count+document_rows()-1)/document_rows()):1;
+    ui_nav_draw_pager(fb,(int)s_document_count,"篇文档",ctx->leaf,pages);ui_nav_draw(fb,1);
     if(s_document_menu)draw_document_details(fb);
 }
 static EpdRect content_sort_mode(int i){return (EpdRect){76+(i%2)*272,326+(i/2)*94,260,76};}
@@ -298,8 +310,8 @@ static void content_sort_open(bool documents){
 }
 static void draw_content_sort(uint8_t *fb){
     ui_clear_page(fb);ui_nav_status(fb);
-    ui_fill_round_rect(fb,(EpdRect){44,220,596,648},24,UI_GRAY_WHITE);
-    ui_draw_round_rect(fb,(EpdRect){44,220,596,648},24,0x70);
+    epd_fill_rect((EpdRect){44,302,596,2},UI_GRAY_SECTION_LINE,fb);
+    epd_fill_rect((EpdRect){44,710,596,2},UI_GRAY_ITEM_LINE,fb);
     ui_text_vc(fb,342,270,30,s_sort_documents?"文档排序":"图书排序",EPD_DRAW_ALIGN_CENTER,false);
     const char *labels[]={s_sort_documents?"文档名":"书名","阅读进度","加入日期","最近阅读"};
     for(int i=0;i<4;++i)library_button(fb,content_sort_mode(i),labels[i],s_sort_draft.mode==i);
@@ -315,7 +327,8 @@ static void draw_content_sort(uint8_t *fb){
     ui_nav_draw(fb,1);
 }
 // 两种管理页共用几何；底部三键不预留菜单空间。/ Shared management geometry; bottom controls span the full width.
-static EpdRect management_row(int i){return (EpdRect){UI_MARGIN,308+i*(UI_BTN_H+UI_GAP),ui_content_width(),UI_BTN_H};}
+static int management_rows(void) { int n=ui_list_visible_rows(308,936,ui_list_row_height(true)+UI_GAP);return n<6?n:6; }
+static EpdRect management_row(int i){return (EpdRect){UI_MARGIN,308+i*(ui_list_row_height(true)+UI_GAP),ui_content_width(),ui_list_row_height(true)};}
 static EpdRect bulk_filter_rect(int i){return ui_row_rect(i,3,216,70);}
 static EpdRect batch_rect(int i){return ui_row_rect(i%3,3,i<3?952:1022,58);}
 static EpdRect management_nav(int i){return ui_row_rect(i,3,UI_BAR_TOP,UI_BAR_H);}
@@ -421,30 +434,30 @@ static size_t s_block_count;
 static size_t s_text_len, s_chapter, s_page;
 static size_t s_selected_toc = SIZE_MAX;
 static bool s_toc_jump_open, s_toc_jump_drag;
-static int s_toc_jump_percent;
+static int s_toc_jump_percent,s_toc_jump_origin;
 static size_t s_jump_offset = SIZE_MAX, s_jump_page;
 static uint32_t s_file_size;
 static int s_px, s_margin, s_line_spacing, s_turns, s_unsaved;
-static int64_t s_poll_ms, s_last_turn_ms, s_sensor_ms;
+static int64_t s_poll_ms, s_last_turn_ms;
 static int64_t s_stats_last_ms, s_stats_activity_ms;
 static uint32_t s_stats_pending_ms, s_stats_pending_turns;
 static uint32_t s_session_read_ms, s_session_turns;
-static int s_font_page;
 static int s_reader_slider = -1;
 static bool s_reader_slider_endpoint;
 static int s_reader_preview_px, s_reader_preview_margin, s_reader_preview_line, s_reader_preview_para;
 static int s_reader_preview_tracking;
-static uint32_t s_recent_days[30];
-static bool s_recent_days_valid;
 static char s_reader_notice[64];
 static int64_t s_reader_notice_until;
-static int s_bookmark_page;
 static bool s_bookmark_edit, s_bookmark_delete_confirm, s_bookmark_delete_error;
 static uint32_t s_bookmark_selected;
-static bool s_shake_enabled, s_sensor_on;
-static bool s_sensor_saved;
-static sc7a20h_sensor_config_t s_sensor_config;
-static book_shake_gate_t s_shake;
+static reader_multi_t s_reader_multi;
+static int s_control_page, s_shortcut_slot;
+static bool s_help_hide;
+static bool s_progress_drag;
+static int s_progress_percent;
+static bool s_jump_back_valid;
+static bool prepare_document_zoom(uint32_t top);
+static size_t s_jump_back_chapter, s_jump_back_offset;
 static EpdRect s_area;
 static enum EpdDrawMode s_mode = MODE_GL16;
 static bool s_reader_cleanup;
@@ -459,6 +472,9 @@ static SemaphoreHandle_t s_draw_lock, s_prep_done;
 static TaskHandle_t s_prep_task;
 static uint8_t* s_next_fb;
 static int s_next_page = -1, s_prep_page = -1;
+static uint32_t s_next_generation;
+static book_layout_cursor_t s_prep_cursor;
+static atomic_bool s_prep_stop;
 
 #define s_toolbar (s_reader_panel != READER_PANEL_NONE)
 
@@ -521,56 +537,26 @@ static EpdRect body_rect_for_tracking(int tracking_index) {
     // Leave only a narrow strip for the full-book progress line in full screen.
     int bottom = s_reader_fullscreen ? READER_FULLSCREEN_PROGRESS_TOP - 2 : UI_BAR_TOP + 8;
     EpdRect outer = {margin, top, UI_LOCK_WIDTH - 2 * margin, bottom - top};
-    int tracking = (tracking_index - 2) * 2;
-    return book_layout_balanced_rect(outer, s_px, tracking);
+    (void)tracking_index;
+    return outer;
 }
 static EpdRect body_rect(void) {
     return body_rect_for_tracking(app_settings_book_tracking());
-}
-static int reader_margin_width(int margin, int px, int tracking_px) {
-    EpdRect outer = {margin, 0, UI_LOCK_WIDTH - 2 * margin, 1};
-    return book_layout_balanced_rect(outer, px, tracking_px).width;
-}
-static int reader_margin_levels(int px, int tracking_px,
-                                int widths[BOOK_MARGIN_CHOICES], int values[BOOK_MARGIN_CHOICES]) {
-    int starts[BOOK_MARGIN_CHOICES], ends[BOOK_MARGIN_CHOICES], count = 0;
-    for (int margin = BOOK_MARGIN_MIN; margin <= BOOK_MARGIN_MAX; ++margin) {
-        int width = reader_margin_width(margin, px, tracking_px);
-        if (!count || widths[count - 1] != width) {
-            widths[count] = width;
-            starts[count] = margin;
-            ends[count] = margin;
-            ++count;
-        } else ends[count - 1] = margin;
-    }
-    for (int i = 0; i < count; ++i) values[i] = (starts[i] + ends[i]) / 2;
-    return count;
-}
-static int reader_margin_level_for(int margin, int px, int tracking_px) {
-    int widths[BOOK_MARGIN_CHOICES], values[BOOK_MARGIN_CHOICES];
-    int count = reader_margin_levels(px, tracking_px, widths, values);
-    int target = reader_margin_width(margin, px, tracking_px);
-    for (int i = 0; i < count; ++i) if (widths[i] == target) return i;
-    return 0;
-}
-static int reader_margin_for_level(int level, int current, int px, int tracking_px) {
-    int widths[BOOK_MARGIN_CHOICES], values[BOOK_MARGIN_CHOICES];
-    int count = reader_margin_levels(px, tracking_px, widths, values);
-    if (level < 0) level = 0;
-    if (level >= count) level = count - 1;
-    return level == reader_margin_level_for(current, px, tracking_px) ? current : values[level];
 }
 static EpdRect progress_rect(void) {
     // 阅读页没有右侧菜单按钮；进度信息应和页眉分隔线一样铺满内容宽度。
     // The reader has no right-hand menu button; the footer spans the full content width.
     return (EpdRect){36, UI_BAR_TOP, UI_LOCK_WIDTH - 72, UI_BAR_H};
 }
-static int shelf_rows(void){return BOOK_GRID_ROWS;}
+// 大/特大字级改用四个大封面；命中与缓存使用相同分页数量。/ Large type uses four covers; hits and cache share pagination.
+static int shelf_grid_side(void){return app_settings_system_font_size()>=140?2:3;}
+static int shelf_rows(void){int n=shelf_grid_side();return n*n;}
+static int shelf_cell_height(void){return (UI_NAV_PAGER_TOP-224)/shelf_grid_side();}
 static EpdRect row_rect(int row) {
     if (s_view != BULK) {
-        int col = row % 3, line = row / 3;
-        int cell = (ui_content_width() - 2 * UI_GAP) / 3;
-        return (EpdRect){UI_MARGIN + col * (cell + UI_GAP), 224 + line * 264, cell, 264};
+        int n=shelf_grid_side(),col=row%n,line=row/n;
+        int cell=(ui_content_width()-(n-1)*UI_GAP)/n,h=shelf_cell_height();
+        return (EpdRect){UI_MARGIN+col*(cell+UI_GAP),224+line*h,cell,h};
     }
     return management_row(row);
 }
@@ -610,13 +596,22 @@ static void prepare_covers(app_ctx_t* ctx) {
     }
 }
 
+static int shelf_cover_height(void) {
+    int ideal=shelf_grid_side()==3?200:300;
+    int available=shelf_cell_height()-2*ui_text_line_height(UI_TEXT_BODY)-16;
+    return available<ideal?available:ideal;
+}
+static EpdRect shelf_image_rect(EpdRect card) {
+    int height=shelf_cover_height(),width=height*176/240;
+    return (EpdRect){card.x+(card.width-width)/2,card.y,width,height};
+}
 static void draw_shelf_cover(uint8_t* fb, EpdRect card, int row, const char* name) {
-    EpdRect image = {card.x + (card.width - 148) / 2, card.y, 148, 200};
+    EpdRect image=shelf_image_rect(card);
     epd_fill_rect(image, UI_GRAY_LIGHT, fb);
     if (s_covers[row].gray) {
         const uint8_t *gray = s_covers[row].gray;
-        // 封面缓冲176×240以比例裁剪填充148×200，不拉伸。
-        // Proportionally crop the 176x240 cover into 148x200 without stretching.
+        // 封面缓冲按当前格子比例裁剪，不拉伸。
+        // Proportionally crop the 176x240 cover into the current grid without stretching.
         const unsigned frame_width = (unsigned)image.width, frame_height = (unsigned)image.height;
         const book_crop_t crop = book_cover_crop(BOOK_COVER_W, BOOK_COVER_H,
                                                  frame_width, frame_height);
@@ -624,7 +619,7 @@ static void draw_shelf_cover(uint8_t* fb, EpdRect card, int row, const char* nam
             const int sy = (int)(crop.y + (uint64_t)(unsigned)y * crop.height / frame_height);
             for (int x = 0; x < image.width; ++x) {
                 const int sx = (int)(crop.x + (uint64_t)(unsigned)x * crop.width / frame_width);
-                const uint8_t tone = ui_contrast_gray(gray[sy * BOOK_COVER_W + sx]);
+                const uint8_t tone = ui_gray_level(gray[sy * BOOK_COVER_W + sx]);
                 epd_draw_pixel(image.x + x, image.y + y,
                                ui_image_dither_gray(tone, image.x + x, image.y + y), fb);
             }
@@ -645,7 +640,7 @@ static EpdRect tool_rect(int i) {
     return (EpdRect){x0, 1096, x1 - x0, 120};
 }
 static int leaves(void) {
-    if (s_view == DOCUMENTS || s_view == DOCUMENT_BULK) return s_document_count ? 1+(int)(s_document_count-1)/(s_view==DOCUMENT_BULK?BOOK_BULK_ROWS:BOOK_ROWS) : 1;
+    if (s_view == DOCUMENTS || s_view == DOCUMENT_BULK) return s_document_count ? 1+(int)(s_document_count-1)/(s_view==DOCUMENT_BULK?BOOK_BULK_ROWS:document_rows()) : 1;
     if (s_view == TOC) return book_toc_pages(book_navigation_count());
     int count = s_visible_count;
     int rows = s_view == BULK ? BOOK_BULK_ROWS : shelf_rows();
@@ -653,15 +648,9 @@ static int leaves(void) {
 }
 static EpdRect shelf_manage_rect(void) { return content_action(0); }
 static EpdRect shelf_sort_rect(void) { return content_action(1); }
-static EpdRect shelf_page_arrow_rect(int direction) {
-    return (EpdRect){direction < 0 ? 194 : 426, 1032, 64, 60};
-}
-static void draw_shelf_pager(uint8_t *fb, int count, int page, int pages) {
-    char label[64];
-    snprintf(label, sizeof(label), "%d本书 · %02d/%02d", count, page + 1, pages);
-    ui_text(fb, 342, 1053, 17, label, EPD_DRAW_ALIGN_CENTER, false);
-    ui_draw_icon(fb, 226, 1065, 22, UI_ICON_CHEVRON_LEFT, page > 0 ? 0 : 0x90);
-    ui_draw_icon(fb, 458, 1065, 22, UI_ICON_CHEVRON_RIGHT, page + 1 < pages ? 0 : 0x90);
+static EpdRect shelf_page_arrow_rect(int direction) {return ui_nav_pager_rect(direction);}
+static void draw_shelf_pager(uint8_t *fb,int count,int page,int pages) {
+    ui_nav_draw_pager(fb,count,"本书",page,pages);
 }
 static app_redraw_t shelf_turn_page(app_ctx_t *ctx, int direction);
 static EpdRect import_rect(int index) { return (EpdRect){36, 230 + index * 164, 612, 136}; }
@@ -735,9 +724,9 @@ static void reader_footer_chapter_name(char *dst, size_t cap) {
 }
 // 标题最多两行，字号限制在格子可容纳的范围；保留UTF8边界。/ Captions use at most two lines with bounded font sizes and UTF-8-safe truncation.
 static void draw_shelf_title(uint8_t *fb,EpdRect card,const char *full){
-    int px=ui_text_effective_px(22);if(px>24)px=24;
-    if(ui_text_fixed_width_px(px,full)<=card.width-8){ui_text_fixed_vc(fb,card.x+card.width/2,card.y+239,px,full,EPD_DRAW_ALIGN_CENTER,false);return;}
-    px=ui_text_effective_px(19);if(px>22)px=22;
+    int px=ui_text_effective_px(UI_TEXT_BODY);
+    if(ui_text_fixed_width_px(px,full)<=card.width-8){ui_text_fixed_vc(fb,card.x+card.width/2,card.y+shelf_cover_height()+16+ui_text_line_height(UI_TEXT_BODY)/2,px,full,EPD_DRAW_ALIGN_CENTER,false);return;}
+    px=ui_text_effective_px(UI_TEXT_BODY);
     char lines[2][256]={{0}};const char *next=full;
     for(int row=0;row<2;++row){size_t used=0;
         while(*next&&used+5<sizeof(lines[row])){
@@ -752,7 +741,7 @@ static void draw_shelf_title(uint8_t *fb,EpdRect card,const char *full){
         while(n&&ui_text_fixed_width_px(px,lines[1])+ui_text_fixed_width_px(px,"…")>card.width-8){do{--n;}while(n&&((unsigned char)lines[1][n]&0xc0)==0x80);lines[1][n]=0;}
         strlcat(lines[1],"…",sizeof(lines[1]));
     }
-    for(int i=0;i<2;++i)if(lines[i][0])ui_text_fixed_vc(fb,card.x+card.width/2,card.y+225+i*25,px,lines[i],EPD_DRAW_ALIGN_CENTER,false);
+    for(int i=0;i<2;++i)if(lines[i][0])ui_text_fixed_vc(fb,card.x+card.width/2,card.y+shelf_cover_height()+16+ui_text_line_height(UI_TEXT_BODY)/2+i*ui_text_line_height(UI_TEXT_BODY),px,lines[i],EPD_DRAW_ALIGN_CENTER,false);
 }
 static uint32_t chapter_end(void) {
     return s_chapter + 1 < book_chapter_count()
@@ -939,13 +928,13 @@ static int layout_name(uint8_t* fb, const char* name, int y, bool draw) {
             if (used + n >= sizeof(line)) break;
             memcpy(line + used, at + used, n);
             line[used + n] = 0;
-            if (ttf_text_width_px(UI_PX_CAPTION, line) > ui_content_width() && used) break;
+            if (ui_text_fixed_width_px(ui_text_effective_px(UI_TEXT_BODY),line)>ui_content_width() && used) break;
             used += n;
         }
         if (!used) break;
         line[used] = 0;
-        if (draw) ui_text(fb, UI_MARGIN, y, UI_PX_CAPTION, line, EPD_DRAW_ALIGN_LEFT, false);
-        y += 36;
+        if (draw) ui_text(fb, UI_MARGIN, y, UI_TEXT_BODY, line, EPD_DRAW_ALIGN_LEFT, false);
+        y += ui_text_line_height(UI_TEXT_BODY);
         at += used;
     }
     return y;
@@ -969,11 +958,11 @@ static EpdRect draw_details_base(uint8_t *fb,const char *name,const char *title,
     ui_text(fb,UI_MARGIN,panel.y+18,UI_PX_BODY,title,EPD_DRAW_ALIGN_LEFT,false);
     int y=draw_wrapped_name(fb,name,panel.y+74)+12;char info[96];const char *ext=strrchr(name,'.');
     snprintf(info,sizeof(info),"%s · %s · %.2f MB",storage,ext?ext+1:"",size/1048576.0);
-    ui_text(fb,UI_MARGIN,y,UI_PX_CAPTION,info,EPD_DRAW_ALIGN_LEFT,false);
+    ui_text(fb,UI_MARGIN,y,UI_TEXT_CAPTION,info,EPD_DRAW_ALIGN_LEFT,false);
     snprintf(info,sizeof(info),has_progress?"阅读进度 %u%%":"尚无阅读进度",pct);
-    ui_text(fb,UI_MARGIN,y+44,UI_PX_CAPTION,info,EPD_DRAW_ALIGN_LEFT,false);
-    ui_text(fb,UI_MARGIN,y+88,UI_PX_CAPTION,folder,EPD_DRAW_ALIGN_LEFT,false);
-    if(message[0])ui_text(fb,UI_MARGIN,panel.y+panel.height-270,UI_PX_CAPTION,message,EPD_DRAW_ALIGN_LEFT,false);
+    ui_text(fb,UI_MARGIN,y+44,UI_TEXT_CAPTION,info,EPD_DRAW_ALIGN_LEFT,false);
+    ui_text(fb,UI_MARGIN,y+88,UI_TEXT_CAPTION,folder,EPD_DRAW_ALIGN_LEFT,false);
+    if(message[0])ui_text(fb,UI_MARGIN,panel.y+panel.height-270,UI_TEXT_CAPTION,message,EPD_DRAW_ALIGN_LEFT,false);
     return panel;
 }
 static void draw_manage(uint8_t* fb) {
@@ -1039,8 +1028,8 @@ static void draw_import(uint8_t* fb) {
     };
     for (int i = 0; i < 4; ++i) {
         EpdRect r = import_rect(i);
-        ui_fill_round_rect(fb, r, 22, UI_GRAY_WHITE);
-        ui_draw_round_rect(fb, r, 22, 0xb0);
+        epd_fill_rect(r,UI_GRAY_WHITE,fb);
+        epd_fill_rect((EpdRect){r.x,r.y+r.height,r.width,2},UI_GRAY_ITEM_LINE,fb);
         ui_text(fb, r.x + 24, r.y + 25, 27, titles[i], EPD_DRAW_ALIGN_LEFT, false);
         ui_text(fb, r.x + 24, r.y + 78, 19, details[i], EPD_DRAW_ALIGN_LEFT, false);
         ui_text_vc(fb, r.x + r.width - 24, r.y + r.height / 2, 26, "›", EPD_DRAW_ALIGN_RIGHT, false);
@@ -1077,28 +1066,30 @@ static void draw_management_header(uint8_t *fb,bool documents,const char *summar
     const char *filters[]={source,"排序",query[0]?"搜索中":"搜索"};
     for(int i=0;i<3;++i){EpdRect r=bulk_filter_rect(i);
         ui_fill_round_rect(fb,r,20,UI_GRAY_WHITE);ui_draw_round_rect(fb,r,20,0xb0);
-        ui_text_vc(fb,r.x+r.width/2,r.y+r.height/2,21,filters[i],EPD_DRAW_ALIGN_CENTER,false);
+        ui_text_vc(fb,r.x+r.width/2,r.y+r.height/2,UI_TEXT_BODY,filters[i],EPD_DRAW_ALIGN_CENTER,false);
     }
 }
 static void draw_management_row(uint8_t *fb,int row,const char *name,const char *detail,bool selected){
-    EpdRect r=management_row(row);ui_fill_round_rect(fb,r,18,selected?0xd0:UI_GRAY_WHITE);
-    ui_draw_round_rect(fb,r,18,selected?0x60:0xb0);
-    char title[256];copy_text(title,sizeof(title),name);fit_text(title,23,495);
-    ui_text_vc(fb,r.x+22,r.y+31,23,title,EPD_DRAW_ALIGN_LEFT,false);
-    char subtitle[128];copy_text(subtitle,sizeof(subtitle),detail);fit_text(subtitle,17,495);
-    ui_text_vc(fb,r.x+22,r.y+62,17,subtitle,EPD_DRAW_ALIGN_LEFT,false);
-    epd_draw_circle(r.x+r.width-37,r.y+42,12,0x58,fb);
-    if(selected)epd_fill_circle(r.x+r.width-37,r.y+42,7,0x38,fb);
+    EpdRect r=management_row(row);epd_fill_rect(r,selected?0xe0:UI_GRAY_WHITE,fb);
+    epd_fill_rect((EpdRect){r.x,r.y+r.height,r.width,2},UI_GRAY_ITEM_LINE,fb);
+    int title_px=ui_text_effective_px(UI_TEXT_BODY);
+    int detail_px=ui_text_effective_px(UI_TEXT_CAPTION);
+    char title[256];copy_text(title,sizeof(title),name);fit_fixed_text(title,title_px,495);
+    ui_text_fixed_vc(fb,r.x+22,r.y+12+ui_text_line_height(UI_TEXT_BODY)/2,title_px,title,EPD_DRAW_ALIGN_LEFT,false);
+    char subtitle[128];copy_text(subtitle,sizeof(subtitle),detail);fit_fixed_text(subtitle,detail_px,495);
+    ui_text_fixed_vc(fb,r.x+22,r.y+12+ui_text_line_height(UI_TEXT_BODY)+ui_text_line_height(UI_TEXT_CAPTION)/2,detail_px,subtitle,EPD_DRAW_ALIGN_LEFT,false);
+    epd_draw_circle(r.x+r.width-37,r.y+r.height/2,12,0x58,fb);
+    if(selected)epd_fill_circle(r.x+r.width-37,r.y+r.height/2,7,0x38,fb);
 }
 static void draw_management_actions(uint8_t *fb,bool documents){
     const char *labels[]={"本页全选","清除勾选","重新扫描","删除所选","清进度","移出书架"};
     for(int i=0;i<(documents?5:6);++i){EpdRect r=batch_rect(i);
         ui_fill_round_rect(fb,r,18,UI_GRAY_WHITE);ui_draw_round_rect(fb,r,18,0xa0);
-        ui_text_vc(fb,r.x+r.width/2,r.y+r.height/2,20,labels[i],EPD_DRAW_ALIGN_CENTER,false);
+        ui_text_vc(fb,r.x+r.width/2,r.y+r.height/2,UI_TEXT_BODY,labels[i],EPD_DRAW_ALIGN_CENTER,false);
     }
     const char *nav[]={"上一页","完成","下一页"};
     for(int i=0;i<3;++i){EpdRect r=management_nav(i);ui_fill_round_rect(fb,r,20,UI_GRAY_WHITE);
-        ui_text_vc(fb,r.x+r.width/2,r.y+r.height/2,21,nav[i],EPD_DRAW_ALIGN_CENTER,false);}
+        ui_text_vc(fb,r.x+r.width/2,r.y+r.height/2,UI_TEXT_BODY,nav[i],EPD_DRAW_ALIGN_CENTER,false);}
 }
 static void draw_bulk(uint8_t *fb,int leaf){
     char summary[96];snprintf(summary,sizeof(summary),"%d 本图书 · 已选 %u 本",s_visible_count,(unsigned)selected_count());
@@ -1151,7 +1142,7 @@ static void save_progress(void) {
     else { if (!s_unsaved) s_unsaved = 1; s_save_failed = true; }
     if (was_failed != s_save_failed) invalidate_prep();
 }
-static void invalidate_prep(void) { s_next_page = s_prep_page = -1; }
+static void invalidate_prep(void) { s_next_page=s_prep_page=-1;s_next_generation=0;memset(&s_prep_cursor,0,sizeof(s_prep_cursor)); }
 
 // 目录使用系统字体；切换前等待预渲染结束，回正文时恢复阅读字体与字形缓存。
 // The directory uses the system face; join painting before switching and restore the reader face on return.
@@ -1284,15 +1275,7 @@ static size_t bookmark_count(void) {
     reader_bookmarks_t marks;
     return bookmark_load(&marks) ? marks.count : 0;
 }
-static int bookmark_rows(void) { return s_bookmark_edit ? 5 : BOOKMARK_ROWS; }
-static int bookmark_pages(size_t count) {
-    return count ? ((int)count + bookmark_rows() - 1) / bookmark_rows() : 1;
-}
-static unsigned bookmark_selected_count(void) {
-    unsigned count = 0;
-    for (unsigned i = 0; i < BOOKMARK_MAX; ++i) if (s_bookmark_selected & (UINT32_C(1) << i)) ++count;
-    return count;
-}
+
 static void bookmark_compact(reader_bookmarks_t* marks, uint32_t selected) {
     size_t write = 0;
     for (size_t i = 0; i < marks->count; ++i)
@@ -1315,7 +1298,6 @@ static bool bookmark_delete_selected(void) {
     nvs_close(h);
     if (err != ESP_OK) return false;
     s_bookmark_selected = 0;
-    s_bookmark_page = 0;
     s_bookmark_edit = marks.count != 0;
     return true;
 }
@@ -1367,547 +1349,7 @@ static bool bookmark_toggle(void) {
     return err == ESP_OK;
 }
 
-static void draw_reader_tool_icon(uint8_t* fb, int cx, int cy, int kind, bool selected) {
-    // 阅读工具栏图标全部来自 Lucide；已保存的书签用带勾的一档区分未保存。
-    // Reader toolbar icons all come from Lucide; a saved bookmark uses the check variant.
-    static const ui_icon_t tools[] = {
-        UI_ICON_LIST,          // 0 目录
-        UI_ICON_BOOKMARK,      // 1 书签
-        UI_ICON_CHART_COLUMN,  // 2 阅读统计
-        UI_ICON_REFRESH_CW,    // 3 阅读设置 / Reading settings
-        UI_ICON_TYPE,          // 4 字体设置
-    };
-    if (kind < 0 || kind >= (int)(sizeof(tools) / sizeof(tools[0]))) return;
-    const ui_icon_t icon = (kind == 1 && selected) ? UI_ICON_BOOKMARK_CHECK : tools[kind];
-    ui_draw_icon(fb, cx, cy, READER_TOOL_ICON_PX, icon, 0x38);
-}
-
-static void draw_sheet(uint8_t* fb, int top, const char* title) {
-    EpdRect sheet = {0, top, UI_LOCK_WIDTH, UI_LOCK_HEIGHT - top + 28};
-    ui_fill_round_rect(fb, sheet, 28, UI_GRAY_WHITE);
-    epd_fill_rect((EpdRect){0, top + 28, UI_LOCK_WIDTH, UI_LOCK_HEIGHT - top - 28}, UI_GRAY_WHITE, fb);
-    ui_draw_round_rect(fb, sheet, 28, 0x58);
-    ui_fill_round_rect(fb, (EpdRect){292, top + 14, 100, 7}, 3, 0x48);
-    ui_text_vc(fb, 342, top + 57, 30, title, EPD_DRAW_ALIGN_CENTER, false);
-}
-
-// 二级面板左上角的返回键：圆底加 Lucide chevron-left，各面板共用。
-// Secondary-panel back control: a circle with the Lucide chevron-left, shared by the panels.
-static void draw_sheet_back(uint8_t* fb, int top) {
-    epd_draw_circle(64, top + 57, 24, UI_NAV_BACK_BORDER_GRAY, fb);
-    epd_draw_circle(64, top + 57, 23, UI_NAV_BACK_BORDER_GRAY, fb);
-    ui_draw_icon(fb, 64, top + 57, READER_SHEET_BACK_PX, UI_ICON_CHEVRON_LEFT, 0x38);
-}
-
-static void draw_pill_slider(uint8_t* fb, EpdRect r, const char* left, const char* right,
-                             const char* value, int index, int count, int left_px, int right_px) {
-    ui_fill_round_rect(fb, r, r.height / 2, 0xb8);
-    ui_draw_round_rect(fb, r, r.height / 2, 0x50);
-    int cy = r.y + r.height / 2;
-    ui_text_vc(fb, r.x + 28, cy, left_px, left, EPD_DRAW_ALIGN_LEFT, false);
-    ui_text_vc(fb, r.x + r.width - 28, cy, right_px, right, EPD_DRAW_ALIGN_RIGHT, false);
-    int span = r.width - 128;
-    int cx = r.x + 64 + (count > 1 ? span * index / (count - 1) : 0);
-    EpdRect track = {r.x + 59, cy - 3, r.width - 118, 6};
-    ui_fill_round_rect(fb, track, 3, 0x78);
-    track.width = cx - track.x;
-    if (track.width > 0) ui_fill_round_rect(fb, track, 3, 0x40);
-    epd_fill_circle(cx, cy, 37, UI_GRAY_WHITE, fb);
-    epd_draw_circle(cx, cy, 37, 0x48, fb);
-    ui_text_vc(fb, cx, cy, 22, value, EPD_DRAW_ALIGN_CENTER, false);
-}
-
-static EpdRect reader_slider_refresh_rect(int slider) {
-    if (slider>=5) return (EpdRect){0,230,684,880};
-    EpdRect r = reader_slider_rect(slider);
-    // The knob extends four pixels outside the pill. Include that margin so
-    // moving it restores the old white footprint and the rail beneath it.
-    r.x -= 8; r.y -= 8; r.width += 16; r.height += 16;
-    return r;
-}
-
-static const char* font_friendly_name(const ttf_font_item_t* item) {
-    return item ? ttf_font_localized_name(item->name) : "";
-}
-
-static void draw_font_name_with_current_face(uint8_t* fb, int x, int y, const char* name) {
-    int above = 0, below = 0;
-    ttf_measure_line_px(25, name, &above, &below);
-    ttf_draw_text_px(fb, x, y + (above - below) / 2, 25, name,
-                     EPD_DRAW_ALIGN_CENTER, UI_INK_BLACK, UI_INK_WHITE);
-}
-
-// Same-height setting rows; these rectangles also define the touch targets.
-static const EpdRect s_font_card = {36, 840, 294, 92};
-static const EpdRect s_shake_card = {354, 840, 294, 92};
-static const EpdRect s_layout_card = {36, 950, 612, 92};
-static const EpdRect s_rule_card = {36, 1060, 612, 92};
-static const EpdRect s_rule_offset_up = {36, 980, 190, 88};
-static const EpdRect s_rule_offset_reset = {246, 980, 192, 88};
-static const EpdRect s_rule_offset_down = {458, 980, 190, 88};
-
-static void draw_font_settings(uint8_t* fb) {
-    const int top = 640;
-    draw_sheet(fb, top, "字体设置");
-    int shown_px = s_reader_slider >= 0 ? s_reader_preview_px : s_px;
-    char value[16]; snprintf(value, sizeof(value), "%d", shown_px);
-    if (book_kind()==BOOK_KIND_MARKDOWN) {
-        ui_draw_button(fb,reader_slider_rect(0),"标题与正文字号 · 效果预览",false);
-    } else draw_pill_slider(fb, reader_slider_rect(0), "A", "A", value,
-                     shown_px - BOOK_PX_MIN, BOOK_PX_MAX - BOOK_PX_MIN + 1, 20, 31);
-    EpdRect font_card = s_font_card;
-    EpdRect shake_card = s_shake_card;
-    ui_fill_round_rect(fb, font_card, 20, 0xd8); ui_draw_round_rect(fb, font_card, 20, 0x70);
-    ui_fill_round_rect(fb, shake_card, 20, 0xd8); ui_draw_round_rect(fb, shake_card, 20, 0x70);
-    ui_text(fb, 58, font_card.y + 13, 17, "阅读字体", EPD_DRAW_ALIGN_LEFT, false);
-    char font_name[64]; copy_text(font_name, sizeof(font_name), ttf_font_display_name());
-    fit_text(font_name, 21, 210);
-    ui_text(fb, 58, font_card.y + 49, 21, font_name, EPD_DRAW_ALIGN_LEFT, false);
-    ui_text_vc(fb, 305, font_card.y + 42, 27, "›", EPD_DRAW_ALIGN_CENTER, false);
-    ui_text(fb, 375, shake_card.y + 13, 17, "晃动翻页", EPD_DRAW_ALIGN_LEFT, false);
-    ui_text(fb, 375, shake_card.y + 49, 20, s_shake_enabled ? "开启" : "关闭", EPD_DRAW_ALIGN_LEFT, false);
-    EpdRect toggle = {565, shake_card.y + 29, 62, 34};
-    ui_fill_round_rect(fb, toggle, 17, s_shake_enabled ? 0x50 : 0xd0);
-    int knob = s_shake_enabled ? toggle.x + 45 : toggle.x + 17;
-    epd_fill_circle(knob, toggle.y + 17, 13, UI_GRAY_WHITE, fb);
-    epd_draw_circle(knob, toggle.y + 17, 13, 0x90, fb);
-    EpdRect layout_card = s_layout_card;
-    ui_fill_round_rect(fb, layout_card, 20, 0xd8); ui_draw_round_rect(fb, layout_card, 20, 0x70);
-    ui_text(fb, 58, layout_card.y + 16, 23, "排版设置", EPD_DRAW_ALIGN_LEFT, false);
-    ui_text(fb, 58, layout_card.y + 56, 18, "边距 · 行距 · 段距 · 字间距", EPD_DRAW_ALIGN_LEFT, false);
-    ui_text_vc(fb, 620, layout_card.y + 46, 28, "›", EPD_DRAW_ALIGN_CENTER, false);
-    EpdRect rule_card = s_rule_card;
-    ui_fill_round_rect(fb, rule_card, 20, 0xd8); ui_draw_round_rect(fb, rule_card, 20, 0x70);
-    ui_text(fb, 58, rule_card.y + 14, 21, "阅读线", EPD_DRAW_ALIGN_LEFT, false);
-    static const char* rule_names[] = {"无", "虚线", "点线"};
-    int selected_rule = app_settings_book_reading_line();
-    ui_text(fb, 615, rule_card.y + 16, 18, rule_names[selected_rule], EPD_DRAW_ALIGN_RIGHT, false);
-    ui_text(fb, 630, rule_card.y + 16, 22, "›", EPD_DRAW_ALIGN_RIGHT, false);
-    if (!selected_rule) ui_text_vc(fb, 342, rule_card.y + 66, 18, "无阅读线", EPD_DRAW_ALIGN_CENTER, false);
-    else {
-        int span = selected_rule == 1 ? 20 : 3;
-        int step = selected_rule == 1 ? 32 : 15;
-        int line_y = rule_card.y + 65;
-        for (int x = 160; x < 524; x += step) {
-            int width = x + span <= 524 ? span : 524 - x;
-            epd_fill_rect((EpdRect){x, line_y, width, 2}, 0x50, fb);
-        }
-    }
-}
-
-static void draw_markdown_sizes(uint8_t *fb) {
-    draw_sheet(fb,100,"文档字号"); draw_sheet_back(fb,100);
-    ui_text_vc(fb,342,206,20,s_md_notice[0]?s_md_notice:"预览 · 应用于所有文档",EPD_DRAW_ALIGN_CENTER,false);
-    const uint8_t *sizes = s_reader_slider >= 5 ? s_md_draft : s_md_sizes;
-    const char *samples[] = {"正文阅读 Aa", "一级标题", "二级标题", "三级标题"};
-    const char *labels[] = {"正文字号", "一级标题字号", "二级标题字号", "三级标题字号"};
-    for (int row = 0; row < 4; ++row) {
-        int index = row == 3 ? 0 : row+1, px = sizes[index];
-        const char *at = samples[index]; int x = 60, above=0,below=0;
-        ttf_measure_line_px(px,at,&above,&below);
-        int baseline = 270+row*108+(above-below)/2;
-        while (*at) {
-            const char *end = at+1; while ((*end & 0xc0)==0x80) ++end;
-            char glyph[5]; size_t n=(size_t)(end-at); memcpy(glyph,at,n); glyph[n]=0;
-            unsigned style = index ? TEXT_STYLE_BOLD : 0;
-            ttf_draw_glyph_styled_px(fb,x,baseline,px,glyph,style,0,15);
-            x += ttf_text_width_styled_px(px,glyph,style); at=end;
-        }
-    }
-    ui_hairline(fb,646,36,612,0xc8);
-    for (int i=0;i<4;++i) {
-        EpdRect rect = reader_slider_rect(5+i); char value[16]; snprintf(value,sizeof(value),"%u",sizes[i]);
-        ui_text_vc(fb,42,rect.y-20,20,labels[i],EPD_DRAW_ALIGN_LEFT,false);
-        int min = i ? 24 : BOOK_PX_MIN, max = i ? 96 : BOOK_PX_MAX;
-        draw_pill_slider(fb,rect,"A","A",value,sizes[i]-min,max-min+1,20,31);
-    }
-    ui_draw_button(fb,(EpdRect){36,1130,612,66},"返回字体设置",false);
-}
-
-static EpdRect rule_style_rect(int index) {
-    return (EpdRect){36 + index * 208, 788, 196, 120};
-}
-
-static void draw_rule_settings(uint8_t *fb) {
-    const int top = 640;
-    draw_sheet(fb, top, "阅读线");
-    draw_sheet_back(fb, top);
-    ui_text(fb, 42, 741, 21, "选择样式", EPD_DRAW_ALIGN_LEFT, false);
-    static const char *const names[] = {"无", "虚线", "点线"};
-    int selected = app_settings_book_reading_line();
-    for (int i = 0; i < 3; ++i) {
-        EpdRect card = rule_style_rect(i);
-        ui_fill_round_rect(fb, card, 20, selected == i ? 0xc8 : 0xe8);
-        ui_draw_round_rect(fb, card, 20, selected == i ? 0x40 : 0x78);
-        ui_text_vc(fb, card.x + card.width / 2, card.y + 37, 24, names[i], EPD_DRAW_ALIGN_CENTER, false);
-        if (i) {
-            int span = i == 1 ? 14 : 3, step = i == 1 ? 24 : 13;
-            int start = card.x + 25, end = card.x + card.width - 25;
-            for (int x = start; x < end; x += step)
-                epd_fill_rect((EpdRect){x, card.y + 83, x + span <= end ? span : end - x, 2}, 0x48, fb);
-        } else ui_text_vc(fb, card.x + card.width / 2, card.y + 83, 17, "不显示", EPD_DRAW_ALIGN_CENTER, false);
-    }
-    char offset[36];
-    snprintf(offset, sizeof(offset), "上下位置  %+d", app_settings_book_reading_line_offset());
-    ui_text(fb, 42, 936, 21, offset, EPD_DRAW_ALIGN_LEFT, false);
-    const EpdRect controls[] = {s_rule_offset_up, s_rule_offset_reset, s_rule_offset_down};
-    const char *const labels[] = {"上移 2px", "恢复居中", "下移 2px"};
-    for (int i = 0; i < 3; ++i) {
-        ui_fill_round_rect(fb, controls[i], 20, selected ? 0xe0 : 0xf0);
-        ui_draw_round_rect(fb, controls[i], 20, selected ? 0x60 : 0xa0);
-        ui_text_vc(fb, controls[i].x + controls[i].width / 2,
-                   controls[i].y + controls[i].height / 2, 22, labels[i], EPD_DRAW_ALIGN_CENTER, false);
-    }
-    if (!selected) ui_text(fb, 42, 1080, 18, "选择虚线或点线后可调整位置", EPD_DRAW_ALIGN_LEFT, false);
-    EpdRect done = {36, 1113, 612, 72};
-    ui_fill_round_rect(fb, done, 20, UI_GRAY_BLACK);
-    ui_text_vc(fb, 342, 1149, 23, "返回字体设置", EPD_DRAW_ALIGN_CENTER, true);
-}
-
-static void draw_layout_settings(uint8_t* fb) {
-    const int top = 575;
-    draw_sheet(fb, top, "排版设置");
-    draw_sheet_back(fb, top);
-    int shown_margin = s_reader_slider >= 0 ? s_reader_preview_margin : s_margin;
-    int shown_line = s_reader_slider >= 0 ? s_reader_preview_line : app_settings_book_line_spacing();
-    int shown_para = s_reader_slider >= 0 ? s_reader_preview_para : app_settings_book_paragraph_spacing();
-    int shown_tracking = s_reader_slider >= 0 ? s_reader_preview_tracking : app_settings_book_tracking();
-    int margin_widths[BOOK_MARGIN_CHOICES], margin_values[BOOK_MARGIN_CHOICES];
-    int margin_count = reader_margin_levels(s_px, (shown_tracking - 2) * 2,
-                                             margin_widths, margin_values);
-    draw_pill_slider(fb, reader_slider_rect(1), "小", "大", "边距",
-                     reader_margin_level_for(shown_margin, s_px, (shown_tracking - 2) * 2),
-                     margin_count, 21, 21);
-    int line_i = shown_line - 110;
-    if (line_i < 0) line_i = 0;
-    if (line_i > 40) line_i = 40;
-    draw_pill_slider(fb, reader_slider_rect(2), "紧", "松", "行距", line_i, 41, 21, 21);
-    ui_text(fb, 42, 790, 19, "段距", EPD_DRAW_ALIGN_LEFT, false);
-    char value[16]; snprintf(value, sizeof(value), "%d%%", shown_para);
-    draw_pill_slider(fb, reader_slider_rect(3), "紧", "松", value, shown_para / 25, 4, 21, 21);
-    ui_text(fb, 42, 909, 19, "字间距", EPD_DRAW_ALIGN_LEFT, false);
-    static const char* track_names[] = {"-4", "-2", "默认", "+2", "+4"};
-    draw_pill_slider(fb, reader_slider_rect(4), "紧", "松", track_names[shown_tracking], shown_tracking, 5, 21, 21);
-    ui_text_vc(fb, 42, 1044, 19, "首行缩进", EPD_DRAW_ALIGN_LEFT, false);
-    static const char* indent_names[] = {"无", "1字", "2字", "3字"};
-    int indent = app_settings_book_indent();
-    for (int i = 0; i < 4; ++i) {
-        EpdRect choice = {214 + i * 108, 1018, 100, 52};
-        bool selected = i == indent;
-        ui_fill_round_rect(fb, choice, 16, selected ? UI_GRAY_BLACK : 0xe4);
-        ui_draw_round_rect(fb, choice, 16, selected ? UI_GRAY_BLACK : 0x98);
-        ui_text_vc(fb, choice.x + choice.width / 2, choice.y + choice.height / 2,
-                   19, indent_names[i], EPD_DRAW_ALIGN_CENTER, selected);
-    }
-    EpdRect back = {36, 1080, 612, 72};
-    ui_fill_round_rect(fb, back, 20, 0xd8); ui_draw_round_rect(fb, back, 20, 0x70);
-    ui_text_vc(fb, 342, 1116, 22, "返回字体设置", EPD_DRAW_ALIGN_CENTER, false);
-}
-
-static EpdRect reading_toggle_rect(int index) {
-    return (EpdRect){36, 742 + index * 94, 612, 84};
-}
-
-static void draw_reading_toggle(uint8_t *fb, int index, const char *title,
-                                const char *detail, bool on) {
-    EpdRect row = reading_toggle_rect(index);
-    ui_fill_round_rect(fb, row, 20, 0xf0);
-    ui_draw_round_rect(fb, row, 20, 0x68);
-    ui_text(fb, row.x + 22, row.y + 13, 25, title, EPD_DRAW_ALIGN_LEFT, false);
-    ui_text(fb, row.x + 22, row.y + 52, 19, detail, EPD_DRAW_ALIGN_LEFT, false);
-    EpdRect track = {555, row.y + 22, 69, 39};
-    ui_fill_round_rect(fb, track, 19, on ? 0x38 : 0xc4);
-    int cx = track.x + (on ? 49 : 20);
-    epd_fill_circle(cx, track.y + 19, 16, UI_GRAY_WHITE, fb);
-    epd_draw_circle(cx, track.y + 19, 16, 0x78, fb);
-}
-
-static void draw_reading_settings(uint8_t* fb) {
-    draw_sheet(fb, 170, "阅读设置");
-    EpdRect manual = {36, 270, 612, 96};
-    ui_fill_round_rect(fb, manual, 22, 0xf0);
-    ui_draw_round_rect(fb, manual, 22, 0x68);
-    ui_text(fb, 58, 286, 28, "手动全刷", EPD_DRAW_ALIGN_LEFT, false);
-    ui_text(fb, 58, 331, 20, "清除整块屏幕的残影", EPD_DRAW_ALIGN_LEFT, false);
-    ui_draw_button(fb, (EpdRect){520, 289, 107, 58}, "全刷", true);
-
-    ui_text(fb, 42, 381, 27, "自动全刷 · 阅读翻页", EPD_DRAW_ALIGN_LEFT, false);
-    const int options[] = {5, 10, 15, 30, 0};
-    for (int i = 0; i < 5; ++i) {
-        EpdRect rect = {36 + i * 124, 420, 116, 68};
-        bool selected = app_settings_reader_full_pages() == options[i];
-        ui_fill_round_rect(fb, rect, 20, selected ? 0xd8 : UI_GRAY_WHITE);
-        ui_draw_round_rect(fb, rect, 20, selected ? 0x48 : 0x68);
-        char label[16];
-        if (options[i]) snprintf(label, sizeof(label), "%d 页", options[i]);
-        else snprintf(label, sizeof(label), "不强制");
-        ui_text_vc(fb, rect.x + rect.width / 2, 454, options[i] ? 26 : 22, label,
-                   EPD_DRAW_ALIGN_CENTER, false);
-        if (selected) epd_fill_circle(rect.x + rect.width - 15, 433, 5, UI_GRAY_BLACK, fb);
-    }
-    ui_text(fb, 42, 510, 27, "翻页效果", EPD_DRAW_ALIGN_LEFT, false);
-    static const char* effects[] = {"默认效果", "水波纹效果"};
-    for (int i = 0; i < 2; ++i) {
-        EpdRect rect = {36 + i * 312, 548, 300, 68};
-        bool selected = app_settings_reader_turn_effect() == i;
-        ui_fill_round_rect(fb, rect, 20, selected ? 0xd8 : UI_GRAY_WHITE);
-        ui_draw_round_rect(fb, rect, 20, selected ? 0x48 : 0x68);
-        ui_text_vc(fb, rect.x + rect.width / 2, 582, 28, effects[i], EPD_DRAW_ALIGN_CENTER, false);
-        if (selected) epd_fill_circle(rect.x + rect.width - 20, 564, 5, UI_GRAY_BLACK, fb);
-    }
-
-    EpdRect mode={36,636,612,84};
-    ui_fill_round_rect(fb,mode,20,0xf0);ui_draw_round_rect(fb,mode,20,0x68);
-    ui_text(fb,58,649,25,"翻页模式",EPD_DRAW_ALIGN_LEFT,false);
-    ui_text(fb,58,688,19,"选择轻点翻页的区域",EPD_DRAW_ALIGN_LEFT,false);
-    ui_text_vc(fb,600,678,25,app_settings_reader_vertical_turn()?"上下翻页":"左右翻页",EPD_DRAW_ALIGN_RIGHT,false);
-    ui_draw_icon(fb,624,678,28,UI_ICON_CHEVRON_RIGHT,0x38);
-    draw_reading_toggle(fb, 0, "电源键翻页", "短按下一页，长按锁屏", app_settings_reader_power_turn());
-    draw_reading_toggle(fb, 1, "全屏沉浸", "全屏时隐藏状态栏", app_settings_reader_immersive());
-    draw_reading_toggle(fb, 2, "关闭书内图片", "跳过正文插图，保留原书文件", app_settings_reader_hide_images());
-    draw_reading_toggle(fb, 3, "长按圆圈键全刷",
-                        app_settings_reader_hold_refresh() ? "当前：长按手动全刷" : "当前：长按返回首页",
-                        app_settings_reader_hold_refresh());
-    ui_fill_round_rect(fb, (EpdRect){36, 1141, 612, 58}, 20, UI_GRAY_BLACK);
-    ui_text_vc(fb, 342, 1170, 26, "完成", EPD_DRAW_ALIGN_CENTER, true);
-}
-
-static void draw_turn_settings(uint8_t *fb) {
-    draw_sheet(fb, 270, "翻页模式");
-    draw_sheet_back(fb, 270);
-    bool vertical = app_settings_reader_vertical_turn();
-    for (int i = 0; i < 2; ++i) {
-        int y = 370 + i * 322;
-        bool selected = vertical == (i != 0);
-        EpdRect card = {36, y, 612, 292};
-        ui_fill_round_rect(fb, card, 22, selected ? 0xe0 : 0xf0);
-        ui_draw_round_rect(fb, card, 22, 0x50);
-        ui_draw_round_rect(fb, (EpdRect){37, y + 1, 610, 290}, 21, 0x50);
-        EpdRect diagram = {64, y + 37, 182, 220};
-        ui_fill_round_rect(fb, diagram, 12, UI_GRAY_WHITE);
-        ui_draw_round_rect(fb, diagram, 12, 0x58);
-        if (i) {
-            ui_hairline(fb, diagram.y + 73, 65, 180, 0x58);
-            ui_hairline(fb, diagram.y + 146, 65, 180, 0x58);
-            ui_text_vc(fb, 155, diagram.y + 36, 21, "上一页", EPD_DRAW_ALIGN_CENTER, false);
-            ui_text_vc(fb, 155, diagram.y + 110, 21, "全屏", EPD_DRAW_ALIGN_CENTER, false);
-            ui_text_vc(fb, 155, diagram.y + 183, 21, "下一页", EPD_DRAW_ALIGN_CENTER, false);
-        } else {
-            epd_fill_rect((EpdRect){119, diagram.y + 1, 1, 218}, 0x58, fb);
-            epd_fill_rect((EpdRect){190, diagram.y + 1, 1, 218}, 0x58, fb);
-            const char *labels[] = {"上", "全", "下", "页", "屏", "页"};
-            const int centers[] = {91, 155, 217};
-            for (int j = 0; j < 3; ++j) {
-                ui_text_vc(fb, centers[j], y + 123, 19, labels[j], EPD_DRAW_ALIGN_CENTER, false);
-                ui_text_vc(fb, centers[j], y + 153, 19, labels[j + 3], EPD_DRAW_ALIGN_CENTER, false);
-            }
-        }
-        ui_text(fb, 274, y + 43, 32, i ? "上下翻页" : "左右翻页", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 274, y + 112, 23, i ? "上 1/3：上一页" : "左侧：上一页", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 274, y + 158, 23, i ? "中 1/3：切换全屏" : "中间：切换全屏", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 274, y + 204, 23, i ? "下 1/3：下一页" : "右侧：下一页", EPD_DRAW_ALIGN_LEFT, false);
-        epd_draw_circle(610, y + 61, 12, 0x38, fb);
-        if (selected) epd_fill_circle(610, y + 61, 7, UI_GRAY_BLACK, fb);
-    }
-    ui_text_vc(fb, 342, 1051, 21, "单击圆圈键打开阅读设置", EPD_DRAW_ALIGN_CENTER, false);
-    ui_fill_round_rect(fb, (EpdRect){36, 1141, 612, 58}, 20, UI_GRAY_BLACK);
-    ui_text_vc(fb, 342, 1170, 26, "完成", EPD_DRAW_ALIGN_CENTER, true);
-}
-
-static void draw_font_picker(uint8_t* fb) {
-    const int top = 584;
-    draw_sheet(fb, top, "字体");
-    epd_draw_line(55, top + 49, 64, top + 58, UI_GRAY_BLACK, fb);
-    epd_draw_line(64, top + 58, 73, top + 49, UI_GRAY_BLACK, fb);
-    int count = ttf_font_count();
-    int pages = count > 0 ? (count + BOOK_FONT_PAGE - 1) / BOOK_FONT_PAGE : 1;
-    char current[96];
-    snprintf(current, sizeof(current), "当前选择 · %s  %d/%d", ttf_font_display_name(), s_font_page + 1, pages);
-    fit_text(current, 20, 540);
-    ui_text_vc(fb, 342, top + 91, 20, current, EPD_DRAW_ALIGN_CENTER, false);
-    int start = s_font_page * BOOK_FONT_PAGE;
-    char active[TTF_FONT_PATH_MAX]; copy_text(active, sizeof(active), ttf_font_path());
-    bool active_builtin = ttf_font_is_builtin();
-    for (int slot = 0; slot < BOOK_FONT_PAGE && start + slot < count; ++slot) {
-        const ttf_font_item_t* item = ttf_font_item(start + slot);
-        int row = slot / 3, col = slot % 3;
-        EpdRect card = {36 + col * 204, top + 119 + row * 146, 180, 126};
-        bool selected = !strcmp(active, item->path);
-        ui_fill_round_rect(fb, card, 18, selected ? 0xc2 : 0xe4);
-        ui_draw_round_rect(fb, card, 18, selected ? 0x48 : 0x98);
-        char label[TTF_FONT_NAME_MAX];
-        copy_text(label, sizeof(label), font_friendly_name(item));
-        if (ttf_font_open(item->path) == ESP_OK) {
-            fit_text(label, 25, card.width - 32);
-            draw_font_name_with_current_face(fb, card.x + 90, card.y + 63, label);
-        } else {
-            fit_fixed_text(label, ui_text_effective_px(25), card.width - 32);
-            ui_text_vc(fb, card.x + 90, card.y + 63, 25, label, EPD_DRAW_ALIGN_CENTER, false);
-        }
-        if (selected) epd_fill_circle(card.x + 158, card.y + 22, 7, UI_GRAY_BLACK, fb);
-    }
-    if (active_builtin) (void)ttf_font_open_builtin();
-    else if (active[0]) (void)ttf_font_open(active);
-    if (!count) ui_text_vc(fb, 342, 780, 24, "所选字体目录中没有可用字体", EPD_DRAW_ALIGN_CENTER, false);
-}
-
-static void draw_reader_stats(uint8_t* fb) {
-    const int top = 768;
-    draw_sheet(fb, top, "阅读统计");
-    char values[3][32];
-    snprintf(values[0], sizeof(values[0]), "%u%%", percent(s_page));
-    snprintf(values[1], sizeof(values[1]), "%lu 分钟", (unsigned long)(s_session_read_ms / 60000));
-    snprintf(values[2], sizeof(values[2]), "%lu 次", (unsigned long)s_session_turns);
-    const char* labels[] = {"阅读进度", "本次阅读", "翻页"};
-    for (int i = 0; i < 3; ++i) {
-        int cx = 114 + i * 228;
-        ui_text_vc(fb, cx, top + 126, 33, values[i], EPD_DRAW_ALIGN_CENTER, false);
-        ui_text_vc(fb, cx, top + 169, 20, labels[i], EPD_DRAW_ALIGN_CENTER, false);
-        if (i < 2) epd_fill_rect((EpdRect){228 + i * 228, top + 99, 1, 74}, 0x98, fb);
-    }
-    ui_text(fb, 54, top + 207, 21, "本书进度", EPD_DRAW_ALIGN_LEFT, false);
-    EpdRect track = {54, top + 245, 576, 12};
-    ui_fill_round_rect(fb, track, 6, 0xd0);
-    EpdRect fill = track; fill.width = fill.width * (int)percent(s_page) / 100;
-    if (fill.width) ui_fill_round_rect(fb, fill, 6, 0x40);
-    if (book_chapter_count() == 1) {
-        char left[32], right[32];
-        snprintf(left, sizeof(left), "第 %u 页", (unsigned)s_page + 1);
-        snprintf(right, sizeof(right), "共 %u 页", (unsigned)book_layout_page_count());
-        ui_text(fb, 54, top + 272, 19, left, EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 630, top + 272, 19, right, EPD_DRAW_ALIGN_RIGHT, false);
-    } else {
-        ui_text(fb, 54, top + 272, 19, "当前页 —", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 630, top + 272, 19, "总页数 —", EPD_DRAW_ALIGN_RIGHT, false);
-    }
-    EpdRect details = {36, top + 319, 294, 78}, recent = {354, top + 319, 294, 78};
-    ui_fill_round_rect(fb, details, 20, 0xd8); ui_draw_round_rect(fb, details, 20, 0x68);
-    ui_fill_round_rect(fb, recent, 20, 0xd8); ui_draw_round_rect(fb, recent, 20, 0x68);
-    char marks[32]; snprintf(marks, sizeof(marks), "查看书签 · %u", (unsigned)bookmark_count());
-    ui_text_vc(fb, 183, top + 358, 24, marks, EPD_DRAW_ALIGN_CENTER, false);
-    ui_text_vc(fb, 501, top + 358, 24, "最近 30 天", EPD_DRAW_ALIGN_CENTER, false);
-}
-
-static void draw_reader_bookmarks(uint8_t* fb) {
-    const int top = 560;
-    draw_sheet(fb, top, "书签");
-    epd_draw_line(55, top + 49, 64, top + 58, UI_GRAY_BLACK, fb);
-    epd_draw_line(64, top + 58, 73, top + 49, UI_GRAY_BLACK, fb);
-    reader_bookmarks_t marks = {0};
-    bool valid = bookmark_load(&marks);
-    int pages = bookmark_pages(valid ? marks.count : 0);
-    if (s_bookmark_page >= pages) s_bookmark_page = pages - 1;
-    if (valid && marks.count) {
-        EpdRect manage = {544, top + 30, 104, 54};
-        ui_fill_round_rect(fb, manage, 20, s_bookmark_edit ? 0xd8 : 0xe8);
-        ui_draw_round_rect(fb, manage, 20, 0x78);
-        ui_text_vc(fb, 596, top + 57, 20, s_bookmark_edit ? "完成" : "管理", EPD_DRAW_ALIGN_CENTER, false);
-    }
-    if (!valid || !marks.count) {
-        ui_text_vc(fb, 342, top + 260, 26, "还没有保存书签", EPD_DRAW_ALIGN_CENTER, false);
-        ui_text_vc(fb, 342, top + 309, 18, "阅读时点按“书签”即可保存当前位置", EPD_DRAW_ALIGN_CENTER, false);
-        return;
-    }
-    int first = s_bookmark_page * bookmark_rows();
-    for (int row = 0; row < bookmark_rows() && first + row < marks.count; ++row) {
-        int newest = (int)marks.count - 1 - (first + row);
-        const reader_bookmark_entry_t* mark = &marks.entries[newest];
-        EpdRect item = {36, top + 96 + row * 82, 612, 72};
-        bool current = mark->chapter == s_chapter && mark->byte_off == book_layout_page_start_offset(s_page);
-        bool selected = s_bookmark_edit && (s_bookmark_selected & (UINT32_C(1) << newest));
-        ui_fill_round_rect(fb, item, 14, selected ? 0xc0 : current ? 0xc8 : 0xe8);
-        ui_draw_round_rect(fb, item, 14, current ? 0x50 : 0x98);
-        char chapter[96];
-        if (book_chapter_title(mark->chapter, chapter, sizeof(chapter)) != ESP_OK)
-            snprintf(chapter, sizeof(chapter), "第 %u 节", (unsigned)mark->chapter + 1);
-        fit_text(chapter, 24, s_bookmark_edit ? 355 : 410);
-        ui_text_vc(fb, item.x + 18, item.y + 27, 24, chapter, EPD_DRAW_ALIGN_LEFT, false);
-        char where[52];
-        if (mark->chapter == s_chapter)
-            snprintf(where, sizeof(where), "第 %u 页", (unsigned)book_layout_page_for_offset(mark->byte_off) + 1);
-        else snprintf(where, sizeof(where), "章节 %u", (unsigned)mark->chapter + 1);
-        ui_text_vc(fb, item.x + item.width - (s_bookmark_edit ? 70 : 20), item.y + 27, 20, where, EPD_DRAW_ALIGN_RIGHT, false);
-        ui_text_vc(fb, item.x + 18, item.y + 55, 18,
-                   s_bookmark_edit ? "点按选择" : current ? "当前阅读位置" : "点按跳转到此处", EPD_DRAW_ALIGN_LEFT, false);
-        if (s_bookmark_edit) {
-            epd_draw_circle(item.x + item.width - 35, item.y + 36, 12, 0x48, fb);
-            if (selected) epd_fill_circle(item.x + item.width - 35, item.y + 36, 7, 0x38, fb);
-        }
-    }
-    if (s_bookmark_edit) {
-        EpdRect all = {36, top + 520, 258, 64}, remove = {312, top + 520, 336, 64};
-        ui_draw_button(fb, all, "全选本页", false);
-        char label[40]; snprintf(label, sizeof(label), "删除已选 · %u", bookmark_selected_count());
-        ui_draw_button(fb, remove, label, bookmark_selected_count() > 0);
-    }
-    char page[32]; snprintf(page, sizeof(page), "‹   %d / %d   ›", s_bookmark_page + 1, pages);
-    ui_text_vc(fb, 342, top + 606, 22, page, EPD_DRAW_ALIGN_CENTER, false);
-    if (s_bookmark_delete_confirm) {
-        EpdRect panel = {54, top + 196, 576, 240};
-        ui_fill_round_rect(fb, panel, 24, UI_GRAY_WHITE);
-        ui_draw_round_rect(fb, panel, 24, 0x48);
-        ui_text_vc(fb, 342, top + 252, 27,
-                   s_bookmark_delete_error ? "删除失败，请重试" : "删除选中的书签？", EPD_DRAW_ALIGN_CENTER, false);
-        ui_text_vc(fb, 342, top + 298, 18, "只删除书签，不影响阅读进度", EPD_DRAW_ALIGN_CENTER, false);
-        ui_draw_button(fb, (EpdRect){76, top + 348, 244, 64}, "取消", false);
-        ui_draw_button(fb, (EpdRect){364, top + 348, 244, 64}, "确认删除", true);
-    }
-}
-
-static void draw_reader_stats_recent(uint8_t* fb) {
-    const int top = 584;
-    draw_sheet(fb, top, "最近 30 天");
-    epd_draw_line(55, top + 49, 64, top + 58, UI_GRAY_BLACK, fb);
-    epd_draw_line(64, top + 58, 73, top + 49, UI_GRAY_BLACK, fb);
-    if (!s_recent_days_valid) {
-        ui_text_vc(fb, 342, top + 280, 23, "请先完成日期与时间设置", EPD_DRAW_ALIGN_CENTER, false);
-        ui_text_vc(fb, 342, top + 326, 18, "完成对时后开始记录每天的阅读时长", EPD_DRAW_ALIGN_CENTER, false);
-        return;
-    }
-    uint64_t sum = 0;
-    uint32_t maximum = 0;
-    for (int i = 0; i < 30; ++i) {
-        sum += s_recent_days[i];
-        if (s_recent_days[i] > maximum) maximum = s_recent_days[i];
-    }
-    char total[64];
-    snprintf(total, sizeof(total), "累计 %llu 小时 %llu 分钟",
-             (unsigned long long)(sum / 3600), (unsigned long long)((sum / 60) % 60));
-    ui_text_vc(fb, 342, top + 112, 28, total, EPD_DRAW_ALIGN_CENTER, false);
-    const int base_y = top + 438, max_h = 250;
-    ui_hairline(fb, base_y, 42, 600, 0xb0);
-    for (int i = 0; i < 30; ++i) {
-        int h = maximum ? (int)((uint64_t)s_recent_days[i] * max_h / maximum) : 0;
-        if (s_recent_days[i] && h < 5) h = 5;
-        if (h) ui_fill_round_rect(fb, (EpdRect){47 + i * 20, base_y - h, 10, h}, 5, 0x38);
-    }
-    ui_text(fb, 42, base_y + 22, 19, "30 天前", EPD_DRAW_ALIGN_LEFT, false);
-    ui_text(fb, 642, base_y + 22, 19, "今天", EPD_DRAW_ALIGN_RIGHT, false);
-}
-
-static void draw_reader_panel(uint8_t* fb) {
-    if (s_reader_panel == READER_PANEL_TOOLS) {
-        epd_fill_rect((EpdRect){0, 1096, UI_LOCK_WIDTH, 120}, UI_GRAY_WHITE, fb);
-        ui_hairline(fb, 1096, 0, UI_LOCK_WIDTH, 0x98);
-        const char* labels[] = {"目录", "书签", "阅读统计", "阅读设置", "字体设置"};
-        for (int i = 0; i < BOOK_TOOL_COUNT; ++i) {
-            EpdRect rect = tool_rect(i);
-            int cx = rect.x + rect.width / 2;
-            bool bookmarked = i == 1 && bookmark_is_current();
-            draw_reader_tool_icon(fb, cx, 1138, i, bookmarked);
-            ui_text_vc(fb, cx, 1179, 20, bookmarked ? "已书签" : labels[i], EPD_DRAW_ALIGN_CENTER, false);
-        }
-    } else if (s_reader_panel == READER_PANEL_FONT_SETTINGS) draw_font_settings(fb);
-    else if (s_reader_panel == READER_PANEL_LAYOUT_SETTINGS) draw_layout_settings(fb);
-    else if (s_reader_panel == READER_PANEL_MARKDOWN_SIZES) draw_markdown_sizes(fb);
-    else if (s_reader_panel == READER_PANEL_RULE_SETTINGS) draw_rule_settings(fb);
-    else if (s_reader_panel == READER_PANEL_FONT_PICKER) draw_font_picker(fb);
-    else if (s_reader_panel == READER_PANEL_STATS) draw_reader_stats(fb);
-    else if (s_reader_panel == READER_PANEL_BOOKMARKS) draw_reader_bookmarks(fb);
-    else if (s_reader_panel == READER_PANEL_STATS_RECENT) draw_reader_stats_recent(fb);
-    else if (s_reader_panel == READER_PANEL_REFRESH_SETTINGS) draw_reading_settings(fb);
-    else if (s_reader_panel == READER_PANEL_TURN_SETTINGS) draw_turn_settings(fb);
-}
+#include "reader_controls_ui.h"
 
 /* ---- 绘制与预渲染 / Drawing and preparation ---- */
 static uint8_t inline_ink_gray(uint8_t gray) {
@@ -1969,12 +1411,13 @@ static void draw_reader_images(uint8_t *fb, size_t page, EpdRect body) {
         }
     }
 }
-static void draw_reader(uint8_t* fb, size_t page) {
-    ui_clear_page(fb);
+#ifdef PICO_HOST_SIMULATOR
+static unsigned s_sim_reader_draws;
+#endif
+static void draw_reader_outer(uint8_t *fb,size_t page) {
     if (!(s_reader_fullscreen && app_settings_reader_immersive())) ui_nav_status(fb);
     if (!s_reader_fullscreen) draw_reader_header(fb);
     EpdRect body = body_rect();
-    book_layout_draw_page(fb, page, body, s_px);
     if (page == 0 && s_chapter_lead_height && s_chapter_heading_title[0]) {
         char heading[128]; copy_text(heading, sizeof(heading), s_chapter_heading_title);
         fit_text(heading, 49, ui_content_width());
@@ -2031,41 +1474,64 @@ static void draw_reader(uint8_t* fb, size_t page) {
     }
     draw_reader_panel(fb);
 }
-static void prep_task(void* arg) {
+static void draw_reader(uint8_t *fb,size_t page) {
+#ifdef PICO_HOST_SIMULATOR
+    ++s_sim_reader_draws;
+#endif
+    ui_clear_page(fb);book_layout_draw_page(fb,page,body_rect(),s_px);draw_reader_outer(fb,page);
+}
+// 在行/表格块边界停止，屏幕推送结束即可交还字体锁；4ms是软空闲预算。/ Stop at row/table boundaries after output; 4ms is a soft idle budget.
+#define BOOK_PREP_RESERVE (1024u*1024u)
+static int reader_prefetch_step(void) {
+    if(!s_next_fb||s_prep_page<0)return -1;
+    if(!s_prep_cursor.started)memset(s_next_fb,255,fb_bytes());
+    int result=book_layout_draw_slice(s_next_fb,(size_t)s_prep_page,body_rect(),s_px,&s_prep_cursor);
+    if(result<0)invalidate_prep();
+    else if(result>0){draw_reader_outer(s_next_fb,(size_t)s_prep_page);s_next_page=s_prep_page;s_next_generation=book_layout_generation();}
+    return result;
+}
+static void prep_task(void *arg) {
     (void)arg;
-    for (;;) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        lock_draw();
-        if (s_prep_page >= 0 && s_text && s_next_fb) {
-            draw_reader(s_next_fb, (size_t)s_prep_page);
-            s_next_page = s_prep_page;
-        }
-        unlock_draw();
-        xSemaphoreGive(s_prep_done);
+    for(;;){ulTaskNotifyTake(pdTRUE,portMAX_DELAY);lock_draw();
+        while(!atomic_load_explicit(&s_prep_stop,memory_order_acquire))if(reader_prefetch_step()!=0)break;
+        unlock_draw();xSemaphoreGive(s_prep_done);
     }
 }
 static void ensure_prep(void) {
-    if (!s_draw_lock) s_draw_lock = xSemaphoreCreateMutex();
-    if (!s_prep_done) s_prep_done = xSemaphoreCreateBinary();
-    if (!s_next_fb) s_next_fb = heap_caps_aligned_alloc(16, fb_bytes(), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!s_prep_task && s_draw_lock && s_prep_done && s_next_fb) {
-        if (xTaskCreatePinnedToCore(prep_task, "book_prep", 12 * 1024, NULL, 3, &s_prep_task, 1) != pdPASS)
-            s_prep_task = NULL;
-    }
+    if(!s_draw_lock)s_draw_lock=xSemaphoreCreateMutex();
+    if(!s_prep_done)s_prep_done=xSemaphoreCreateBinary();
+    size_t need=fb_bytes();
+    if(!s_next_fb&&heap_caps_get_free_size(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)>need+BOOK_PREP_RESERVE)
+        s_next_fb=heap_caps_aligned_alloc(16,need,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+    if(!s_prep_task&&s_draw_lock&&s_prep_done&&s_next_fb&&xTaskCreatePinnedToCore(prep_task,"book_prep",12*1024,NULL,3,&s_prep_task,1)!=pdPASS)s_prep_task=NULL;
 }
 static bool kick_prep(void) {
-    if (s_view != READING || s_toolbar || s_clear_confirm ||
-        s_page + 1 >= book_layout_page_count() || s_next_page == (int)s_page + 1 ||
-        book_layout_page_image(s_page + 1) >= 0 ||
-        book_layout_page_image_count(s_page + 1) > 0) return false;
-    // 预渲染只是加速功能；开书时不要先占用一整页缓冲。
-    // Prefetch is optional; never reserve a full framebuffer before opening a book.
-    if (!s_prep_task || !s_next_fb) ensure_prep();
-    if (!s_prep_task || !s_next_fb) return false;
-    s_prep_page = (int)s_page + 1;
-    xSemaphoreTake(s_prep_done, 0);
-    xTaskNotifyGive(s_prep_task);
-    return true;
+    if(s_view!=READING||!s_text||s_toolbar||s_clear_confirm||s_page+1>=book_layout_page_count()||
+       book_layout_page_image(s_page+1)>=0||book_layout_page_image_count(s_page+1)>0)return false;
+    int target=(int)s_page+1;
+    if(s_next_page==target&&s_next_generation==book_layout_generation())return false;
+    if(!s_prep_task||!s_next_fb)ensure_prep();
+    if(!s_prep_task||!s_next_fb)return false;
+    if(s_prep_page!=target||s_prep_cursor.generation!=book_layout_generation()){
+        invalidate_prep();s_prep_page=target;
+    }
+    xSemaphoreTake(s_prep_done,0);atomic_store_explicit(&s_prep_stop,false,memory_order_release);xTaskNotifyGive(s_prep_task);return true;
+}
+static void reader_prefetch_end(bool started) {
+    if(!started)return;
+    atomic_store_explicit(&s_prep_stop,true,memory_order_release);xSemaphoreTake(s_prep_done,portMAX_DELAY);
+}
+static bool reader_prefetch_resume(size_t page) {
+    if(!s_next_fb||s_prep_page!=(int)page||!s_prep_cursor.started||s_prep_cursor.generation!=book_layout_generation())return false;
+    while(reader_prefetch_step()==0){}
+    return s_next_page==(int)page&&s_next_generation==book_layout_generation();
+}
+static void reader_prefetch_idle(app_ctx_t *ctx) {
+    if(s_view!=READING||!s_text||s_toolbar||s_clear_confirm||ctx->consumed||ctx->request_app||ctx->request_menu||
+       (ctx->touch&&ctx->touch->touched)||s_prep_page!=(int)s_page+1||s_next_page==s_prep_page)return;
+    lock_draw();int64_t deadline=esp_timer_get_time()+4000;
+    for(unsigned row=0;row<8;++row)if(reader_prefetch_step()!=0||esp_timer_get_time()>=deadline)break;
+    unlock_draw();
 }
 static size_t current_toc_position(void) {
     size_t count = book_navigation_count();
@@ -2082,7 +1548,7 @@ static size_t current_toc_position(void) {
     return selected;
 }
 static void render(app_ctx_t* ctx, uint8_t* fb) {
-    ui_text_set_system_scale(s_view != READING && s_view != TOC);
+    ui_text_set_system_scale(s_view != READING);
     lock_draw();
     if (s_document_zoom) {draw_document_zoom(fb);unlock_draw();return;}
     if (s_sort_open) {draw_content_sort(fb);unlock_draw();return;}
@@ -2097,13 +1563,14 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
                         book_navigation_count(), current_toc_position(), ctx->leaf, s_message);
         if (s_toc_jump_open)
             book_toc_render_jump(fb, book_navigation_count(), s_toc_jump_percent);
+        else reader_control_footer(fb);
         unlock_draw();
         return;
     }
     if(s_view==READING&&s_text)draw_reader(fb,s_page);
     else{
         // 详情复用书架背景，不再绘制独立详情页的管理栏。/ Details reuse the shelf background without a separate management page.
-        ui_clear_page(fb);epd_fill_rect((EpdRect){0,0,UI_LOCK_WIDTH,UI_NAV_TOP},0xe0,fb);
+        ui_clear_page(fb);epd_fill_rect((EpdRect){0,0,UI_LOCK_WIDTH,UI_NAV_TOP},UI_GRAY_WHITE,fb);
         ui_nav_status(fb);draw_content_tabs(fb,false);draw_content_actions(fb);
         ui_hairline(fb,195,36,612,0x68);
         if(s_message[0]||s_shelf_warning[0])ui_text(fb,UI_MARGIN,1023,17,s_message[0]?s_message:s_shelf_warning,EPD_DRAW_ALIGN_LEFT,false);
@@ -2115,7 +1582,7 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
                 char name[128];copy_text(name,sizeof(name),s_shelf[i].name);
                 draw_shelf_cover(fb,r,row,name);
                 draw_shelf_title(fb,r,name);
-                EpdRect track={r.x+(r.width-148)/2,r.y+208,148,4};
+                EpdRect image=shelf_image_rect(r);EpdRect track={image.x,image.y+image.height+8,image.width,4};
                 epd_fill_rect(track,0xc0,fb);unsigned pct=s_shelf[i].pct>100?100:s_shelf[i].pct;
                 if(pct){EpdRect fill=track;fill.width=(track.width*(int)pct+99)/100;epd_fill_rect(fill,UI_GRAY_BLACK,fb);}
             }
@@ -2152,6 +1619,7 @@ static bool present(app_ctx_t* ctx, app_redraw_t redraw) {
     }
     else if (image_gray_refresh) err = update_display_with(ctx->hl, &E0470_FULL_WAVEFORM, MODE_GC16);
     else if (redraw == APP_REDRAW_FULL || s_reader_cleanup) err = update_display_full(ctx->hl);
+    else if(s_view==READING&&s_toolbar)err=update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,redraw==APP_REDRAW_AREA?s_area:(EpdRect){0,0,684,1216});
     else if (redraw == APP_REDRAW_AREA) {
         // 翻页动画与页脚刷新独立：全屏没有页脚，仍使用用户选择的水波纹。
         // The turn effect is independent of the footer: full-screen turns still use the selected water effect.
@@ -2178,7 +1646,7 @@ static bool present(app_ctx_t* ctx, app_redraw_t redraw) {
         ? update_display_mode_diff(ctx->hl, APP_PAGE_REFRESH_MODE)
         : update_display_fast_page(ctx->hl);
     int64_t displayed = esp_timer_get_time();
-    if (prep) xSemaphoreTake(s_prep_done, portMAX_DELAY);
+    reader_prefetch_end(prep);
     if (redraw == APP_REDRAW_AREA && s_mode == MODE_DU &&
         !s_reader_cleanup && !image_gray_refresh) {
         s_du_area = s_du_count ? ui_rect_union(s_du_area, s_area) : s_area;
@@ -2203,9 +1671,12 @@ static app_redraw_t paint_reading(app_ctx_t* ctx, enum EpdDrawMode mode) {
     s_reader_image_refresh_pending = !app_settings_reader_hide_images() && (book_kind()==BOOK_KIND_EPUB ?
         reader_image_slots(s_page)>0 : s_inline_gray && book_layout_page_image(s_page)==s_inline_index);
     lock_draw();
-    bool cached = !s_toolbar && !s_clear_confirm && s_next_fb && s_next_page == (int)s_page;
-    if (cached)
-        memcpy(ctx->fb, s_next_fb, fb_bytes());
+    bool cached = !s_toolbar && !s_clear_confirm && s_next_fb &&
+        ((s_next_page==(int)s_page&&s_next_generation==book_layout_generation())||reader_prefetch_resume(s_page));
+    if (cached) {
+        memcpy(ctx->fb,s_next_fb,fb_bytes());
+        if(!(s_reader_fullscreen&&app_settings_reader_immersive()))ui_nav_status(ctx->fb);
+    }
     else draw_reader(ctx->fb, s_page);
     unlock_draw();
     ESP_LOGI(TAG, "paint cached=%d ms=%lld", cached, (esp_timer_get_time() - started) / 1000);
@@ -2307,7 +1778,7 @@ static void prepare_epub_images(void) {
     if (s_page_images_for == s_page && s_page_images_generation == generation) return;
     int count = reader_image_slots(s_page);
     // 纯文字页保留预渲染结果，只有插图页需重画。/ Preserve prefetched text frames; only image pages require repainting.
-    if (count) invalidate_prep();
+    if (count) {invalidate_prep();free(s_next_fb);s_next_fb=NULL;}
     release_page_images();
     s_page_images_for = s_page; s_page_images_generation = generation;
     if (!count || count > (int)HTML_TEXT_MAX_BLOCKS) return;
@@ -2334,6 +1805,7 @@ static void prepare_epub_images(void) {
             width = w ? (int)w : 1; height = h ? (int)h : 1;
             size_t pixels = (size_t)width * height;
             uint8_t *gray = pixels <= pixels_left ? heap_caps_malloc(pixels, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) : NULL;
+            if(!gray&&pixels<=pixels_left){lock_draw();ttf_font_cache_clear_all();unlock_draw();gray=heap_caps_malloc(pixels,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);}
             if (gray && book_image_grayscale(encoded, size, png, width, height, gray)) {
                 s_page_images[i] = (reader_image_t){gray, width, height};
                 pixels_left -= pixels;
@@ -2380,6 +1852,7 @@ static void prepare_inline_image(void) {
         if (!out_w) out_w = 1;
         if (!out_h) out_h = 1;
         uint8_t *gray = heap_caps_malloc((size_t)out_w * out_h, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if(!gray){lock_draw();ttf_font_cache_clear_all();unlock_draw();gray=heap_caps_malloc((size_t)out_w*out_h,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);}
         if (gray && book_image_grayscale(encoded, size, png, out_w, out_h, gray)) {
             s_inline_gray = gray; s_inline_w = out_w; s_inline_h = out_h;
         } else { free(gray); ESP_LOGW(TAG, "inline image decode chapter=%u index=%d", (unsigned)s_chapter, index); }
@@ -2554,7 +2027,7 @@ static bool open_book(app_ctx_t* ctx, const char* path) {
     free(s_next_fb);
     s_next_fb = NULL;
     unlock_draw();
-    if (network.network_ready) ttf_font_cache_clear();
+    lock_draw();ttf_font_cache_clear_all();unlock_draw();
     ESP_LOGI(TAG, "open start wifi=%d internal=%u/%u psram=%u/%u", network.network_ready,
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
@@ -2566,7 +2039,7 @@ static bool open_book(app_ctx_t* ctx, const char* path) {
     }
     save_progress();
     free_book();
-    s_reader_fullscreen = false;
+    s_reader_fullscreen = app_settings_reader_fullscreen();
     app_font_activate_reading();
     if (!pending_reserve(path)) {
         copy_text(s_message, sizeof(s_message), "内存不足，无法打开图书");
@@ -2616,7 +2089,8 @@ static bool open_book(app_ctx_t* ctx, const char* path) {
     s_reader_image_refresh_pending = !app_settings_reader_hide_images() && (book_kind()==BOOK_KIND_EPUB ?
         reader_image_slots(s_page)>0 : s_inline_gray && book_layout_page_image(s_page)==s_inline_index);
     s_stats_last_ms = s_stats_activity_ms = ctx->now_ms;
-    s_reader_panel = READER_PANEL_NONE;
+    s_reader_panel = reader_input_needs_help(s_path) ? READER_PANEL_HELP : READER_PANEL_NONE;
+    s_control_page=0;reader_input_preferences_t input_prefs;reader_input_export(&input_prefs);s_help_hide=input_prefs.hide_help!=0;s_jump_back_valid=false;s_progress_drag=false;s_reader_multi=(reader_multi_t){0};
     s_clear_confirm = s_batch_confirm = false;
     s_session_read_ms = s_session_turns = 0;
     s_reader_notice[0] = 0;
@@ -3019,35 +2493,6 @@ static void manage_apply(app_ctx_t* ctx) {
 }
 
 /* ---- 输入与生命周期 / Input and lifecycle ---- */
-static void sensor_set(app_ctx_t* ctx, bool on) {
-    memset(&s_shake, 0, sizeof(s_shake));
-    if (!ctx->sensor_ready) return;
-    if (on) {
-        if (!s_sensor_saved) {
-            s_sensor_config = *sc7a20h_get_config(ctx->acc);
-            s_sensor_saved = true;
-        }
-        sc7a20h_sensor_config_t config = s_sensor_config;
-        config.odr = SC7A20H_ODR_100;
-        config.fs = SC7A20H_FS_2G;
-        s_sensor_on = sc7a20h_apply_config(ctx->acc, &config) == ESP_OK &&
-            sc7a20h_activity_config(ctx->acc, BOOK_SHAKE_THS_MG, BOOK_SHAKE_DUR) == ESP_OK;
-        if (!s_sensor_on) {
-            sc7a20h_aoi_cfg_t off = {0};
-            sc7a20h_aoi_config(ctx->acc, SC7A20H_AOI2, &off);
-            sc7a20h_apply_config(ctx->acc, &s_sensor_config);
-            s_sensor_saved = false;
-            read_pico_sensor_sleep(ctx->acc);
-        }
-    } else {
-        sc7a20h_aoi_cfg_t off = {0};
-        sc7a20h_aoi_config(ctx->acc, SC7A20H_AOI2, &off);
-        if (s_sensor_saved) sc7a20h_apply_config(ctx->acc, &s_sensor_config);
-        s_sensor_saved = false;
-        read_pico_sensor_sleep(ctx->acc);
-        s_sensor_on = false;
-    }
-}
 static app_redraw_t turn_page(app_ctx_t* ctx, int dir) {
     if (!s_text || s_clear_confirm) return APP_REDRAW_NONE;
     if(book_kind()==BOOK_KIND_MARKDOWN&&book_layout_page_count()==1&&dir>0&&!s_document_completed){s_document_completed=true;save_progress();return APP_REDRAW_PAGE;}
@@ -3080,38 +2525,14 @@ static app_redraw_t turn_page(app_ctx_t* ctx, int dir) {
     s_water_turn_dir = dir > 0 ? E0470_TURN_RTL : E0470_TURN_LTR;
     return redraw;
 }
-static app_redraw_t resize_text(app_ctx_t* ctx, int dir) {
-    int next = s_px + dir * BOOK_PX_STEP;
-    if (next < BOOK_PX_MIN || next > BOOK_PX_MAX) return APP_REDRAW_NONE;
-    size_t off = book_layout_page_start_offset(s_page);
-    lock_draw();
-    invalidate_prep();
-    int old = s_px;
-    if (!book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count, body_rect(), next)) {
-        bool restored = book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count, body_rect(), old);
-        unlock_draw();
-        if (!restored) {
-            free_book();
-            s_view = SHELF;
-            copy_text(s_message, sizeof(s_message), "排版失败，请重新扫描并打开图书");
-            return APP_REDRAW_PAGE;
-        }
-        return APP_REDRAW_NONE;
-    }
-    s_px = next;
-    s_page = book_layout_page_for_offset(off);
-    unlock_draw();
-    if (book_kind()!=BOOK_KIND_MARKDOWN) app_settings_set_book_px(s_px);
-    save_progress();
-    return paint_reading(ctx, MODE_DU);
-}
+
 
 static app_redraw_t apply_reader_layout(app_ctx_t* ctx, int next_px, int next_margin,
                                         uint8_t next_line, uint8_t next_para) {
     if (next_px < BOOK_PX_MIN || next_px > BOOK_PX_MAX ||
-        next_margin < 24 || next_margin > 60 ||
+        next_margin < BOOK_MARGIN_MIN || next_margin > BOOK_MARGIN_MAX ||
         next_line < 110 || next_line > 150 ||
-        next_para > 75 || next_para % 25) return APP_REDRAW_NONE;
+        next_para > 75) return APP_REDRAW_NONE;
     if (next_px == s_px && next_margin == s_margin && next_line == app_settings_book_line_spacing() &&
         next_para == app_settings_book_paragraph_spacing()) return APP_REDRAW_NONE;
     size_t off = book_layout_page_start_offset(s_page);
@@ -3139,6 +2560,7 @@ static app_redraw_t apply_reader_layout(app_ctx_t* ctx, int next_px, int next_ma
     app_settings_set_book_margin((uint8_t)s_margin);
     app_settings_set_book_line_spacing(next_line);
     app_settings_set_book_paragraph_spacing(next_para);
+    prepare_inline_image();
     save_progress();
     return APP_REDRAW_PAGE;
 }
@@ -3163,6 +2585,7 @@ static app_redraw_t apply_reader_typography(app_ctx_t* ctx, int tracking_index) 
     unlock_draw();
     if (!ok) return APP_REDRAW_NONE;
     app_settings_set_book_tracking((uint8_t)tracking_index);
+    prepare_inline_image();
     save_progress();
     return APP_REDRAW_PAGE;
 }
@@ -3185,6 +2608,7 @@ static app_redraw_t apply_reader_indent(app_ctx_t* ctx, int em) {
     unlock_draw();
     if (!ok) return APP_REDRAW_NONE;
     app_settings_set_book_indent((uint8_t)em);
+    prepare_inline_image();
     save_progress();
     return APP_REDRAW_PAGE;
 }
@@ -3194,6 +2618,7 @@ static app_redraw_t reader_manual_refresh(app_ctx_t* ctx) {
     if (!s_text) return APP_REDRAW_NONE;
     s_reader_panel = READER_PANEL_NONE;
     s_reader_slider = -1;
+    s_progress_drag = false;
     s_reader_footer_pending = s_reader_image_refresh_pending = false;
     s_water_turn_pending = s_reader_cleanup = false;
     s_du_count = s_turns = 0;
@@ -3277,6 +2702,7 @@ static app_redraw_t toggle_reader_fullscreen(app_ctx_t* ctx) {
     prepare_inline_image();
     s_jump_offset = SIZE_MAX;
     s_reader_panel = READER_PANEL_NONE;
+    app_settings_set_reader_fullscreen(s_reader_fullscreen);
     save_progress();
     return APP_REDRAW_PAGE;
 }
@@ -3299,6 +2725,7 @@ static app_redraw_t select_reading_font_item(app_ctx_t* ctx, const ttf_font_item
     if (!ok) return APP_REDRAW_NONE;
     app_settings_set_font_path(item->path);
     copy_text(s_font_path, sizeof(s_font_path), item->path);
+    prepare_inline_image();
     save_progress();
     return APP_REDRAW_PAGE;
 }
@@ -3311,23 +2738,11 @@ static int slider_index(EpdRect rect, int x, int count) {
     if (index >= count) index = count - 1;
     return index;
 }
-static int reader_margin_input(EpdRect rect, int x, int current, int px, int tracking_px) {
-    int widths[BOOK_MARGIN_CHOICES], values[BOOK_MARGIN_CHOICES];
-    int count = reader_margin_levels(px, tracking_px, widths, values);
-    int level = reader_margin_level_for(current, px, tracking_px);
-    if (x < rect.x + 64) --level;
-    else if (x >= rect.x + rect.width - 64) ++level;
-    else level = slider_index(rect, x, count);
-    return reader_margin_for_level(level, current, px, tracking_px);
-}
-
 static EpdRect reader_slider_rect(int slider) {
-    if (slider >= 5 && slider <= 8) return (EpdRect){36,687+(slider-5)*108,612,66};
-    if (slider == 0) return (EpdRect){36, 746, 612, 66};
-    if (slider == 1) return (EpdRect){36, 700, 294, 66};
-    if (slider == 2) return (EpdRect){354, 700, 294, 66};
-    if (slider == 3) return (EpdRect){36, 819, 612, 66};
-    return (EpdRect){36, 938, 612, 66};
+    int row=slider>=5?slider-5:slider==0?0:slider-1;
+    if(slider>=1&&slider<5)row-=s_control_page*reader_control_rows();
+    if(row<0||row>=reader_control_rows())return (EpdRect){0};
+    EpdRect r=reader_control_row(row);return (EpdRect){36,r.y+r.height-70,612,60};
 }
 
 static int reader_slider_at(uint16_t x, uint16_t y) {
@@ -3335,7 +2750,6 @@ static int reader_slider_at(uint16_t x, uint16_t y) {
         for (int i=5;i<9;++i) if(ui_rect_hit(reader_slider_rect(i),x,y))return i;
         return -1;
     }
-    if (s_reader_panel == READER_PANEL_FONT_SETTINGS && book_kind()==BOOK_KIND_MARKDOWN) return -1;
     int first = s_reader_panel == READER_PANEL_FONT_SETTINGS ? 0 : 1;
     int end = s_reader_panel == READER_PANEL_FONT_SETTINGS ? 1 : 5;
     for (int i = first; i < end; ++i) if (ui_rect_hit(reader_slider_rect(i), x, y)) return i;
@@ -3347,15 +2761,9 @@ static void reader_slider_map(int slider, int x) {
         int i=slider-5, min=i?24:BOOK_PX_MIN,max=i?96:BOOK_PX_MAX;
         s_md_draft[i]=min+slider_index(reader_slider_rect(slider),x,max-min+1);
     } else if (slider == 0) s_reader_preview_px = BOOK_PX_MIN + slider_index(reader_slider_rect(0), x, 37);
-    else if (slider == 1) {
-        int widths[BOOK_MARGIN_CHOICES], values[BOOK_MARGIN_CHOICES];
-        int count = reader_margin_levels(s_px, (app_settings_book_tracking() - 2) * 2, widths, values);
-        s_reader_preview_margin = reader_margin_for_level(
-            slider_index(reader_slider_rect(1), x, count), s_reader_preview_margin,
-            s_px, (app_settings_book_tracking() - 2) * 2);
-    }
+    else if (slider == 1) s_reader_preview_margin = BOOK_MARGIN_MIN + slider_index(reader_slider_rect(1), x, BOOK_MARGIN_MAX-BOOK_MARGIN_MIN+1);
     else if (slider == 2) s_reader_preview_line = 110 + slider_index(reader_slider_rect(2), x, 41);
-    else if (slider == 3) s_reader_preview_para = slider_index(reader_slider_rect(3), x, 4) * 25;
+    else if (slider == 3) s_reader_preview_para = slider_index(reader_slider_rect(3), x, 76);
     else if (slider == 4) s_reader_preview_tracking = slider_index(reader_slider_rect(4), x, 5);
 }
 
@@ -3378,14 +2786,10 @@ static void reader_slider_begin(int slider, int x) {
     int *value = slider == 0 ? &s_reader_preview_px : slider == 1 ? &s_reader_preview_margin :
                  slider == 2 ? &s_reader_preview_line : slider == 3 ? &s_reader_preview_para :
                  &s_reader_preview_tracking;
-    if (slider == 1) {
-        *value = reader_margin_input(rect, x, *value, s_px, (app_settings_book_tracking() - 2) * 2);
-        return;
-    }
-    int min = slider == 0 ? BOOK_PX_MIN : slider == 1 ? 24 : slider == 2 ? 110 : 0;
+    int min = slider == 0 ? BOOK_PX_MIN : slider == 1 ? BOOK_MARGIN_MIN : slider == 2 ? 110 : 0;
     int max = slider == 0 ? BOOK_PX_MAX : slider == 1 ? 60 : slider == 2 ? 150 : slider == 3 ? 75 : 4;
     s_reader_slider_endpoint = x < rect.x + 64 || x >= rect.x + rect.width - 64;
-    int step = slider == 3 ? 25 : 1;
+    int step = 1;
     if (x < rect.x + 64) *value -= step;
     else if (x >= rect.x + rect.width - 64) *value += step;
     else reader_slider_map(slider, x);
@@ -3431,348 +2835,17 @@ static app_redraw_t reader_slider_commit(app_ctx_t* ctx) {
     int para = s_reader_preview_para;
     int tracking = s_reader_preview_tracking;
     s_reader_slider = -1;
+    s_progress_drag = false;
     if (slider>=5) return apply_markdown_sizes(ctx);
+    if(slider==0&&book_kind()==BOOK_KIND_MARKDOWN){memcpy(s_md_draft,s_md_sizes,4);s_md_draft[0]=(uint8_t)px;return apply_markdown_sizes(ctx);}
     if (slider == 4) return apply_reader_typography(ctx, tracking);
     return apply_reader_layout(ctx, px, margin, line, (uint8_t)para);
 }
 
-static app_redraw_t reader_panel_action(app_ctx_t* ctx, uint16_t x, uint16_t y) {
-    if (s_reader_panel==READER_PANEL_MARKDOWN_SIZES) {
-        if(y<100) s_reader_panel=READER_PANEL_NONE;
-        else if(ui_rect_hit((EpdRect){36,129,56,56},x,y)||ui_rect_hit((EpdRect){36,1130,612,66},x,y)) s_reader_panel=READER_PANEL_FONT_SETTINGS;
-        else return APP_REDRAW_NONE;
-        s_reader_slider=-1; return APP_REDRAW_PAGE;
-    }
-    if (s_reader_panel == READER_PANEL_TOOLS) {
-        for (int i = 0; i < BOOK_TOOL_COUNT; ++i) if (ui_rect_hit(tool_rect(i), x, y)) {
-            invalidate_prep();
-            if (i == 0) {
-                save_progress();
-                set_reader_view(TOC);
-                s_message[0] = 0;
-                s_toc_jump_open = s_toc_jump_drag = false;
-                s_reader_panel = READER_PANEL_NONE;
-                size_t toc = current_toc_position();
-                ctx->leaf = toc == SIZE_MAX ? 0 : (int)(toc / BOOK_TOC_ROWS);
-            } else if (i == 1) {
-                (void)bookmark_toggle();
-            } else if (i == 2) {
-                s_reader_panel = READER_PANEL_STATS;
-            } else if (i == 3) {
-                s_reader_panel = READER_PANEL_REFRESH_SETTINGS;
-            } else {
-                s_line_spacing = app_settings_book_line_spacing();
-                s_reader_slider = -1;
-                s_reader_panel = READER_PANEL_FONT_SETTINGS;
-            }
-            return APP_REDRAW_PAGE;
-        }
-        s_reader_panel = READER_PANEL_NONE;
-        invalidate_prep();
-        return APP_REDRAW_PAGE;
-    }
-    if (s_reader_panel == READER_PANEL_STATS) {
-        const int top = 768;
-        EpdRect details = {36, top + 319, 294, 78}, recent = {354, top + 319, 294, 78};
-        if (ui_rect_hit(details, x, y)) {
-            s_bookmark_page = 0;
-            s_bookmark_edit = s_bookmark_delete_confirm = s_bookmark_delete_error = false;
-            s_bookmark_selected = 0;
-            s_reader_panel = READER_PANEL_BOOKMARKS;
-        }
-        else if (ui_rect_hit(recent, x, y)) {
-            flush_ticket_stats();
-            s_recent_days_valid = book_ticket_recent_days(s_recent_days, NULL);
-            s_reader_panel = READER_PANEL_STATS_RECENT;
-        } else s_reader_panel = y < top ? READER_PANEL_NONE : READER_PANEL_TOOLS;
-        invalidate_prep();
-        return APP_REDRAW_PAGE;
-    }
-    if (s_reader_panel == READER_PANEL_BOOKMARKS) {
-        const int top = 560;
-        if (s_bookmark_delete_confirm) {
-            if (y >= top + 348 && y < top + 412) {
-                if (x < 342) s_bookmark_delete_confirm = s_bookmark_delete_error = false;
-                else if (bookmark_delete_selected()) s_bookmark_delete_confirm = s_bookmark_delete_error = false;
-                else s_bookmark_delete_error = true;
-            }
-        } else if (y < top) s_reader_panel = READER_PANEL_NONE;
-        else if (y < top + 86) {
-            if (x >= 544 && bookmark_count()) {
-                s_bookmark_edit = !s_bookmark_edit;
-                s_bookmark_selected = 0;
-                s_bookmark_page = 0;
-            } else s_reader_panel = READER_PANEL_STATS;
-        } else {
-            reader_bookmarks_t marks = {0};
-            bool valid = bookmark_load(&marks);
-            int pages = bookmark_pages(valid ? marks.count : 0);
-            if (s_bookmark_edit && y >= top + 520 && y < top + 584) {
-                if (x < 303) {
-                    int first = s_bookmark_page * bookmark_rows();
-                    for (int row = 0; row < bookmark_rows() && first + row < marks.count; ++row)
-                        s_bookmark_selected |= UINT32_C(1) << (marks.count - 1 - (first + row));
-                } else if (s_bookmark_selected) s_bookmark_delete_confirm = true;
-            } else if (y >= top + (s_bookmark_edit ? 590 : 570)) {
-                if (x < UI_LOCK_WIDTH / 2 && s_bookmark_page > 0) --s_bookmark_page;
-                else if (x >= UI_LOCK_WIDTH / 2 && s_bookmark_page + 1 < pages) ++s_bookmark_page;
-            } else if (valid && y >= top + 96) {
-                int row = ((int)y - (top + 96)) / 82;
-                int position = s_bookmark_page * bookmark_rows() + row;
-                if (row >= 0 && row < bookmark_rows() && position < marks.count &&
-                    y < top + 96 + row * 82 + 72) {
-                    int newest = (int)marks.count - 1 - position;
-                    reader_bookmark_entry_t mark = marks.entries[newest];
-                    if (s_bookmark_edit) s_bookmark_selected ^= UINT32_C(1) << newest;
-                    else if (mark.chapter < book_chapter_count() && load_chapter(ctx, mark.chapter, mark.byte_off, false)) {
-                        s_reader_panel = READER_PANEL_NONE;
-                        save_progress();
-                    }
-                }
-            }
-        }
-        invalidate_prep();
-        return APP_REDRAW_PAGE;
-    }
-    if (s_reader_panel == READER_PANEL_STATS_RECENT) {
-        int top = 584;
-        if (y < top) s_reader_panel = READER_PANEL_NONE;
-        else if (y < top + 112) s_reader_panel = READER_PANEL_STATS;
-        invalidate_prep();
-        return APP_REDRAW_PAGE;
-    }
-    if (s_reader_panel == READER_PANEL_REFRESH_SETTINGS) {
-        if (y < 170) s_reader_panel = READER_PANEL_NONE;
-        else if (ui_rect_hit((EpdRect){36, 270, 612, 96}, x, y)) return reader_manual_refresh(ctx);
-        else if (y >= 420 && y < 488) {
-            static const uint8_t options[] = {5, 10, 15, 30, 0};
-            for (int i = 0; i < 5; ++i) {
-                if (!ui_rect_hit((EpdRect){36 + i * 124, 420, 116, 68}, x, y)) continue;
-                app_settings_set_reader_full_pages(options[i]);
-                s_turns = 0;
-                return APP_REDRAW_PAGE;
-            }
-            return APP_REDRAW_NONE;
-        } else if (y >= 548 && y < 616) {
-            for (int i = 0; i < 2; ++i) {
-                if (!ui_rect_hit((EpdRect){36 + i * 312, 548, 300, 68}, x, y)) continue;
-                app_settings_set_reader_turn_effect((uint8_t)i);
-                return APP_REDRAW_PAGE;
-            }
-            return APP_REDRAW_NONE;
-        } else if (ui_rect_hit((EpdRect){36, 636, 612, 84}, x, y)) s_reader_panel = READER_PANEL_TURN_SETTINGS;
-        else if (ui_rect_hit((EpdRect){36, 1141, 612, 58}, x, y)) s_reader_panel = READER_PANEL_NONE;
-        else {
-            for (int i = 0; i < 4; ++i)
-                if (ui_rect_hit(reading_toggle_rect(i), x, y)) return apply_reader_option(ctx, i);
-            return APP_REDRAW_NONE;
-        }
-        invalidate_prep();
-        return APP_REDRAW_PAGE;
-    }
-    if (s_reader_panel == READER_PANEL_TURN_SETTINGS) {
-        if (y < 270) s_reader_panel = READER_PANEL_NONE;
-        else if (ui_rect_hit((EpdRect){36, 299, 56, 56}, x, y)) s_reader_panel = READER_PANEL_REFRESH_SETTINGS;
-        else if (ui_rect_hit((EpdRect){36, 1141, 612, 58}, x, y)) s_reader_panel = READER_PANEL_REFRESH_SETTINGS;
-        else {
-            for (int i = 0; i < 2; ++i) {
-                if (!ui_rect_hit((EpdRect){36, 370 + i * 322, 612, 292}, x, y)) continue;
-                app_settings_set_reader_vertical_turn(i != 0);
-                invalidate_prep();
-                return APP_REDRAW_PAGE;
-            }
-            return APP_REDRAW_NONE;
-        }
-        invalidate_prep();
-        return APP_REDRAW_PAGE;
-    }
-    if (s_reader_panel == READER_PANEL_FONT_SETTINGS) {
-        const int top = 640;
-        EpdRect size = reader_slider_rect(0);
-        EpdRect font = s_font_card;
-        EpdRect shake = s_shake_card;
-        EpdRect layout = s_layout_card;
-        EpdRect rule = s_rule_card;
-        if (ui_rect_hit(size, x, y)) {
-            if(book_kind()==BOOK_KIND_MARKDOWN){s_reader_panel=READER_PANEL_MARKDOWN_SIZES;return APP_REDRAW_PAGE;}
-            int px = BOOK_PX_MIN + slider_index(size, x, BOOK_PX_MAX - BOOK_PX_MIN + 1);
-            return apply_reader_layout(ctx, px, s_margin, app_settings_book_line_spacing(),
-                                       app_settings_book_paragraph_spacing());
-        }
-        if (ui_rect_hit(font, x, y)) {
-            ttf_font_scan();
-            s_font_page = 0;
-            int count = ttf_font_count();
-            const char* active = ttf_font_path();
-            for (int i = 0; i < count; ++i) {
-                const ttf_font_item_t* item = ttf_font_item(i);
-                if (item && !strcmp(active, item->path)) { s_font_page = i / BOOK_FONT_PAGE; break; }
-            }
-            s_reader_panel = READER_PANEL_FONT_PICKER;
-            return APP_REDRAW_PAGE;
-        }
-        if (ui_rect_hit(shake, x, y)) {
-            s_shake_enabled = !s_shake_enabled;
-            app_settings_set_book_shake(s_shake_enabled);
-            sensor_set(ctx, s_shake_enabled);
-            return APP_REDRAW_PAGE;
-        }
-        if (ui_rect_hit(layout, x, y)) {
-            s_reader_slider = -1;
-            s_reader_panel = READER_PANEL_LAYOUT_SETTINGS;
-            return APP_REDRAW_PAGE;
-        }
-        if (ui_rect_hit(rule, x, y)) {
-            s_reader_panel = READER_PANEL_RULE_SETTINGS;
-            return APP_REDRAW_PAGE;
-        }
-        s_reader_panel = y < top ? READER_PANEL_NONE : READER_PANEL_TOOLS;
-        invalidate_prep();
-        return APP_REDRAW_PAGE;
-    }
-    if (s_reader_panel == READER_PANEL_LAYOUT_SETTINGS) {
-        const int top = 575;
-        EpdRect back_icon = {36, top + 29, 56, 56};
-        EpdRect back_button = {36, 1080, 612, 72};
-        if (ui_rect_hit(back_icon, x, y) || ui_rect_hit(back_button, x, y)) {
-            s_reader_slider = -1;
-            s_reader_panel = READER_PANEL_FONT_SETTINGS;
-            return APP_REDRAW_PAGE;
-        }
-        EpdRect margin = reader_slider_rect(1);
-        EpdRect line = reader_slider_rect(2);
-        EpdRect paragraph = reader_slider_rect(3);
-        EpdRect tracking = reader_slider_rect(4);
-        if (ui_rect_hit(margin, x, y)) {
-            return apply_reader_layout(ctx, s_px,
-                                       reader_margin_input(margin, x, s_margin, s_px,
-                                                           (app_settings_book_tracking() - 2) * 2),
-                                       app_settings_book_line_spacing(), app_settings_book_paragraph_spacing());
-        }
-        if (ui_rect_hit(line, x, y)) {
-            uint8_t value = (uint8_t)(110 + slider_index(line, x, 41));
-            return apply_reader_layout(ctx, s_px, s_margin, value,
-                                       app_settings_book_paragraph_spacing());
-        }
-        if (ui_rect_hit(paragraph, x, y))
-            return apply_reader_layout(ctx, s_px, s_margin, app_settings_book_line_spacing(),
-                                       (uint8_t)(slider_index(paragraph, x, 4) * 25));
-        if (ui_rect_hit(tracking, x, y))
-            return apply_reader_typography(ctx, slider_index(tracking, x, 5));
-        for (int i = 0; i < 4; ++i) {
-            EpdRect choice = {214 + i * 108, 1018, 100, 52};
-            if (ui_rect_hit(choice, x, y)) return apply_reader_indent(ctx, i);
-        }
-        s_reader_panel = y < top ? READER_PANEL_NONE : READER_PANEL_FONT_SETTINGS;
-        invalidate_prep();
-        return APP_REDRAW_PAGE;
-    }
-    if (s_reader_panel == READER_PANEL_RULE_SETTINGS) {
-        if (y < 729 || ui_rect_hit((EpdRect){36, 1113, 612, 72}, x, y)) {
-            s_reader_panel = READER_PANEL_FONT_SETTINGS;
-            return APP_REDRAW_PAGE;
-        }
-        for (int i = 0; i < 3; ++i) {
-            if (!ui_rect_hit(rule_style_rect(i), x, y)) continue;
-            app_settings_set_book_reading_line((uint8_t)i);
-            book_layout_set_reading_line((unsigned)i);
-            invalidate_prep();
-            return APP_REDRAW_PAGE;
-        }
-        if (app_settings_book_reading_line()) {
-            int offset = app_settings_book_reading_line_offset();
-            if (ui_rect_hit(s_rule_offset_up, x, y)) offset -= 2;
-            else if (ui_rect_hit(s_rule_offset_reset, x, y)) offset = 0;
-            else if (ui_rect_hit(s_rule_offset_down, x, y)) offset += 2;
-            else return APP_REDRAW_NONE;
-            if (offset < -8) offset = -8;
-            if (offset > 8) offset = 8;
-            app_settings_set_book_reading_line_offset((int8_t)offset);
-            book_layout_set_reading_line_offset(offset);
-            invalidate_prep();
-            return APP_REDRAW_PAGE;
-        }
-        return APP_REDRAW_NONE;
-    }
-    if (s_reader_panel == READER_PANEL_FONT_PICKER) {
-        const int top = 584;
-        if (y < top + 112) {
-            s_reader_panel = READER_PANEL_FONT_SETTINGS;
-            return APP_REDRAW_PAGE;
-        }
-        int count = ttf_font_count(), start = s_font_page * BOOK_FONT_PAGE;
-        for (int slot = 0; slot < BOOK_FONT_PAGE && start + slot < count; ++slot) {
-            int row = slot / 3, col = slot % 3;
-            EpdRect card = {36 + col * 204, top + 119 + row * 146, 180, 126};
-            if (ui_rect_hit(card, x, y)) return select_reading_font_item(ctx, ttf_font_item(start + slot));
-        }
-        return APP_REDRAW_NONE;
-    }
-    return APP_REDRAW_NONE;
-}
-static app_redraw_t adjust_spacing(app_ctx_t* ctx, int control) {
-    uint8_t old_line = app_settings_book_line_spacing();
-    uint8_t old_para = app_settings_book_paragraph_spacing();
-    uint8_t line = old_line, para = old_para;
-    if (control == 3 && line > 120) line -= 30;
-    if (control == 4 && line < 180) line += 30;
-    if (control == 5 && para > 0) para -= 25;
-    if (control == 6 && para < 75) para += 25;
-    if (control == 17) { line = 150; para = 50; }
-    if (line == old_line && para == old_para) return APP_REDRAW_NONE;
-    size_t off = book_layout_page_start_offset(s_page);
-    lock_draw();
-    invalidate_prep();
-    book_layout_set_spacing(line, para);
-    bool ok = book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count, body_rect(), s_px);
-    if (ok) s_page = book_layout_page_for_offset(off);
-    else {
-        book_layout_set_spacing(old_line, old_para);
-        (void)book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count, body_rect(), s_px);
-    }
-    unlock_draw();
-    if (!ok) return APP_REDRAW_NONE;
-    app_settings_set_book_line_spacing(line);
-    app_settings_set_book_paragraph_spacing(para);
-    save_progress();
-    return paint_reading(ctx, MODE_DU);
-}
-static app_redraw_t select_reading_font(app_ctx_t* ctx, int style) {
-    static const char* filenames[] = {
-        "Song.ttf", "Hei.ttf", "Kai.ttf", "WenKai.ttf", "FangSong.ttf", "KingHwa.ttf",
-        "CangErYunHei05.ttf", "ChillKai.ttf"
-    };
-    static const char* names[] = {"宋体", "黑体", "楷体", "文楷", "仿宋", "京华老宋", "仓耳云黑05", "寒蝉正楷"};
-    char path[160];
-    if (snprintf(path, sizeof(path), "%s/%s", app_settings_fonts_dir(), filenames[style]) >= sizeof(path)) return APP_REDRAW_NONE;
-    if (!strcmp(ttf_font_path(), path)) return APP_REDRAW_NONE;
-    struct stat font_stat;
-    if (stat(path, &font_stat) != 0) {
-        snprintf(s_message, sizeof(s_message), "请将 %s 字体放入所选字体目录", names[style]);
-        return APP_REDRAW_PAGE;
-    }
-    if (ttf_font_open(path) != ESP_OK) {
-        snprintf(s_message, sizeof(s_message), "请将 %s 字体放入所选字体目录", names[style]);
-        return APP_REDRAW_PAGE;
-    }
-    app_settings_set_font_path(path);
-    s_message[0] = 0;
-    size_t off = book_layout_page_start_offset(s_page);
-    save_progress();
-    lock_draw();
-    invalidate_prep();
-    bool ok = book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count, body_rect(), s_px);
-    if (ok) s_page = book_layout_page_for_offset(off);
-    copy_text(s_font_path, sizeof(s_font_path), ttf_font_path());
-    unlock_draw();
-    if (!ok) {
-        free_book(); s_view = SHELF;
-        copy_text(s_message, sizeof(s_message), "字体重排失败，请重新打开图书");
-        return APP_REDRAW_PAGE;
-    }
-    save_progress();
-    return paint_reading(ctx, MODE_GL16);
-}
+#include "reader_controls_actions.h"
+
+
+
 static app_redraw_t manage_action(app_ctx_t* ctx,uint16_t x,uint16_t y){
     if(!ui_rect_hit(manage_panel(),x,y)){
         if(s_clear_confirm)s_clear_confirm=false;else s_view=SHELF;
@@ -4025,11 +3098,7 @@ static app_redraw_t document_bulk_action(app_ctx_t *ctx,const ui_gesture_event_t
     return APP_REDRAW_NONE;
 }
 // 正文高度三等分；页眉、页脚保留各自操作。/ Split the body into thirds, keeping header/footer actions separate.
-static int reader_vertical_tap(EpdRect body, int y) {
-    if (y < body.y || y >= body.y + body.height || body.height <= 0) return 2;
-    int zone = (y - body.y) * 3 / body.height;
-    return zone == 0 ? -1 : zone == 2 ? 1 : 0;
-}
+
 
 static app_redraw_t action_at(app_ctx_t* ctx, uint16_t x, uint16_t y) {
     if (s_view == IMPORT) {
@@ -4092,6 +3161,7 @@ static app_redraw_t action_at(app_ctx_t* ctx, uint16_t x, uint16_t y) {
             size_t chapter = book_navigation_chapter((size_t)target);
             if (chapter >= book_chapter_count()) return APP_REDRAW_NONE;
             save_progress();
+            reader_remember_jump();
             set_reader_view(READING);
             if (load_chapter_at(ctx, chapter, 0, false, book_navigation_anchor((size_t)target),
                                 book_navigation_source_offset((size_t)target))) {
@@ -4123,16 +3193,10 @@ static app_redraw_t action_at(app_ctx_t* ctx, uint16_t x, uint16_t y) {
         if (!s_reader_fullscreen && ui_rect_hit((EpdRect){32, 75, 64, 64}, x, y))
             return reader_return(ctx, false);
 
-        if (app_settings_reader_vertical_turn()) {
-            int target = reader_vertical_tap(body_rect(), y);
-            if (target == -1 || target == 1) return turn_page(ctx, target);
-            if (target == 0) return toggle_reader_fullscreen(ctx);
-            return APP_REDRAW_NONE;
-        }
-        if (x < UI_LOCK_WIDTH * 3 / 10) return turn_page(ctx, -1);
-        if (x >= UI_LOCK_WIDTH * 7 / 10) return turn_page(ctx, 1);
-        if (ui_rect_hit(body_rect(), x, y)) return toggle_reader_fullscreen(ctx);
-        return APP_REDRAW_NONE;
+        if(!ui_rect_hit(reader_area(),x,y))return APP_REDRAW_NONE;
+        if(x<UI_LOCK_WIDTH/3)return turn_page(ctx,-1);
+        if(x>=UI_LOCK_WIDTH*2/3)return turn_page(ctx,1);
+        return reader_show_panel(READER_PANEL_TOOLS);
     }
     if (s_view == SHELF || s_view == BULK) {
         if (s_view == SHELF) {
@@ -4209,7 +3273,7 @@ static void on_enter(app_ctx_t* ctx) {
     book_layout_set_first_line_indent(app_settings_book_indent());
     book_layout_set_reading_line(app_settings_book_reading_line());
     book_layout_set_reading_line_offset(app_settings_book_reading_line_offset());
-    s_reader_fullscreen = false;
+    s_reader_fullscreen = app_settings_reader_fullscreen();
     s_bookmark_edit = s_bookmark_delete_confirm = s_bookmark_delete_error = false;
     s_bookmark_selected = 0;
     clear_selection();
@@ -4233,6 +3297,7 @@ static void on_enter(app_ctx_t* ctx) {
     pending_drop_invalidated();
     s_reader_panel = READER_PANEL_NONE;
     s_reader_slider = -1;
+    s_progress_drag = false;
     s_clear_confirm = s_batch_confirm = false;
     s_pressed_control = -1;
     s_du_count = 0;
@@ -4261,17 +3326,15 @@ static void on_enter(app_ctx_t* ctx) {
         }
         read_pico_sd_start_probe();
     }
-    s_shake_enabled = app_settings_book_shake();
-    if (s_shake_enabled) sensor_set(ctx, true);
 }
 static void book_on_exit(app_ctx_t* ctx) {
     s_presented_view = -1;
     free(s_editor_cover); s_editor_cover = NULL;
     s_pressed_control = -1;
     s_reader_slider = -1;
+    s_progress_drag = false;
     save_progress();
     s_reader_return_home = false;
-    sensor_set(ctx, false);
     free_book();
     if (s_prep_task) { vTaskDelete(s_prep_task); s_prep_task = NULL; }
     free(s_next_fb);
@@ -4295,6 +3358,7 @@ static void book_on_media_lost(app_ctx_t* ctx) {
     ctx->leaf = 0;
     s_reader_panel = READER_PANEL_NONE;
     s_reader_slider = -1;
+    s_progress_drag = false;
     s_clear_confirm = s_batch_confirm = false;
     s_pressed_control = -1;
     s_scan_pending = true;
@@ -4406,50 +3470,41 @@ static app_redraw_t gesture_event(app_ctx_t* ctx, const ui_gesture_event_t* ev) 
         if(ev->type==UI_GESTURE_TAP&&!s_zoom_moved){s_document_zoom=false;free(s_zoom_gray);s_zoom_gray=NULL;return APP_REDRAW_PAGE;}
         return APP_REDRAW_NONE;
     }
+    if(s_view==READING&&!s_clear_confirm){s_stats_activity_ms=ctx->now_ms;return reader_controls_gesture(ctx,ev);}
+    if(s_view==TOC&&!s_toc_jump_open&&ev->type==UI_GESTURE_TAP&&ev->y0>=1096)return reader_show_tab(ctx,ev->x0*5/684);
     if((s_view==SHELF||s_view==DOCUMENTS)&&ev->type==UI_GESTURE_TAP){
         if(ui_rect_hit(content_tab(0),ev->x0,ev->y0)){s_view=SHELF;s_document_mode=false;ctx->leaf=0;prepare_covers(ctx);return APP_REDRAW_PAGE;}
         if(ui_rect_hit(content_tab(1),ev->x0,ev->y0)){s_view=DOCUMENTS;s_document_mode=true;s_document_delete_confirm=s_document_clear_confirm=s_document_menu=false;ctx->leaf=0;scan_documents(ctx);return APP_REDRAW_PAGE;}
     }
     if(s_view==DOCUMENTS){
         if(ev->type==UI_GESTURE_TAP){
+            for(int direction=-1;direction<=1;direction+=2)if(ui_rect_hit(ui_nav_pager_rect(direction),ev->x0,ev->y0)){
+                int next=ctx->leaf+direction;if(next>=0&&next<leaves()){ctx->leaf=next;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;
+            }
             if(ui_rect_hit(content_action(0),ev->x0,ev->y0)){clear_document_selection();s_document_batch_confirm=false;s_document_message[0]=0;s_view=DOCUMENT_BULK;ctx->leaf=0;return APP_REDRAW_PAGE;}
             if(ui_rect_hit(content_action(1),ev->x0,ev->y0)){content_sort_open(true);return APP_REDRAW_PAGE;}
             int tab=ui_nav_hit(ev->x0,ev->y0);if(tab>=0){ui_nav_request(ctx,tab);return APP_REDRAW_NONE;}
         }
         if(ev->type==UI_GESTURE_SWIPE_U||ev->type==UI_GESTURE_SWIPE_D){int next=ctx->leaf+(ev->type==UI_GESTURE_SWIPE_U?1:-1);if(next>=0&&next<leaves()){ctx->leaf=next;return APP_REDRAW_PAGE;}}
-        if(ev->type==UI_GESTURE_TAP||ev->type==UI_GESTURE_LONG_PRESS){for(int row=0;row<BOOK_ROWS;row++)if(ui_rect_hit(document_row(row),ev->x0,ev->y0)){size_t i=(size_t)ctx->leaf*BOOK_ROWS+row;if(i>=s_document_count)break;
+        if(ev->type==UI_GESTURE_TAP||ev->type==UI_GESTURE_LONG_PRESS){for(int row=0;row<document_rows();row++)if(ui_rect_hit(document_row(row),ev->x0,ev->y0)){size_t i=(size_t)ctx->leaf*document_rows()+row;if(i>=s_document_count)break;
             if(ev->type==UI_GESTURE_LONG_PRESS){s_document_detail=s_documents[i];s_document_menu=true;s_document_delete_confirm=s_document_clear_confirm=false;s_document_message[0]=0;return APP_REDRAW_PAGE;}
             char path[288];snprintf(path,sizeof(path),"%s",s_documents[i].path);if(open_book(ctx,path))return APP_REDRAW_PAGE;return APP_REDRAW_NONE;
         }}return APP_REDRAW_NONE;
-    }
-    if(s_view==READING&&book_kind()==BOOK_KIND_MARKDOWN&&s_reader_panel==READER_PANEL_NONE&&ev->type==UI_GESTURE_TAP){
-        if(ev->x0<110&&ev->y0>=75&&ev->y0<150){save_progress();free_book();s_view=DOCUMENTS;ctx->leaf=0;scan_documents(ctx);return APP_REDRAW_PAGE;}
-        if(s_inline_gray&&book_layout_page_image(s_page)==s_inline_index){EpdRect body=body_rect();EpdRect image={body.x+(body.width-(int)s_inline_w)/2,body.y+(body.height-(int)s_inline_h)/2,(int)s_inline_w,(int)s_inline_h};
-            if(ui_rect_hit(image,ev->x0,ev->y0)&&prepare_document_zoom(0)){s_document_zoom=true;s_zoom_moved=false;invalidate_prep();return APP_REDRAW_PAGE;}}
     }
 
     if (s_view == TOC) {
         if (s_toc_jump_open) {
             if (ev->type == UI_GESTURE_PRESS &&
                 book_toc_jump_hit(ev->x0, ev->y0) == BOOK_TOC_JUMP_TRACK) {
-                s_toc_jump_drag = true;
-                s_toc_jump_percent = book_toc_jump_percent(ev->x0);
-                return APP_REDRAW_PAGE;
+                s_toc_jump_origin=s_toc_jump_percent;s_toc_jump_drag=true;
+                return reader_toc_preview(ctx,ev->x0,true);
             }
-            if (s_toc_jump_drag && ev->type == UI_GESTURE_MOVE) {
-                int next = book_toc_jump_percent(ev->x);
-                if (next == s_toc_jump_percent) return APP_REDRAW_NONE;
-                s_toc_jump_percent = next;
-                render(ctx, ctx->fb);
-                s_area = (EpdRect){44, 356, 596, 572};
-                s_mode = MODE_GL16;
-                return APP_REDRAW_AREA;
-            }
-            if (s_toc_jump_drag && ev->type != UI_GESTURE_PRESS) {
-                s_toc_jump_drag = false;
-                if (ev->type == UI_GESTURE_CANCEL) return APP_REDRAW_NONE;
-                s_toc_jump_percent = book_toc_jump_percent(ev->x);
-                return APP_REDRAW_PAGE;
+            if(s_toc_jump_drag){
+                if(ev->type==UI_GESTURE_LONG_PRESS)return APP_REDRAW_NONE;
+                if(ev->type==UI_GESTURE_MOVE)return reader_toc_preview(ctx,ev->x,false);
+                s_toc_jump_drag=false;
+                if(ev->type==UI_GESTURE_CANCEL&&!(ctx->released&&ctx->touch&&!ctx->consumed))return reader_toc_preview(ctx,92+s_toc_jump_origin*5,true);
+                return reader_toc_preview(ctx,ev->x,true);
             }
             if (ev->type == UI_GESTURE_TAP) return action_at(ctx, ev->x0, ev->y0);
             return APP_REDRAW_NONE;
@@ -4471,49 +3526,6 @@ static app_redraw_t gesture_event(app_ctx_t* ctx, const ui_gesture_event_t* ev) 
     if (s_view == SHELF && ev->type == UI_GESTURE_TAP && ui_nav_hit(ev->x0, ev->y0) >= 0) {
         ui_nav_request(ctx, ui_nav_hit(ev->x0, ev->y0));
         return APP_REDRAW_NONE;
-    }
-    if (s_view == READING && ev->type != UI_GESTURE_PRESS) s_stats_activity_ms = ctx->now_ms;
-    if (s_view == READING &&
-        (s_reader_panel == READER_PANEL_FONT_SETTINGS || s_reader_panel == READER_PANEL_LAYOUT_SETTINGS ||
-         s_reader_panel == READER_PANEL_MARKDOWN_SIZES)) {
-        if (ev->type == UI_GESTURE_PRESS) {
-            int slider = reader_slider_at(ev->x0, ev->y0);
-            if (slider >= 0) {
-                reader_slider_begin(slider, ev->x0);
-                render(ctx, ctx->fb);
-                s_area = reader_slider_refresh_rect(slider);
-                s_mode = MODE_GL16;
-                return APP_REDRAW_AREA;
-            }
-        } else if (s_reader_slider >= 0) {
-            if (ev->type == UI_GESTURE_MOVE) {
-                int slider = s_reader_slider;
-                reader_slider_move(ev->x);
-                render(ctx, ctx->fb);
-                s_area = reader_slider_refresh_rect(slider);
-                s_mode = MODE_GL16;
-                return APP_REDRAW_AREA;
-            }
-            if (ev->type == UI_GESTURE_TAP || ev->type == UI_GESTURE_SWIPE_L ||
-                ev->type == UI_GESTURE_SWIPE_R || ev->type == UI_GESTURE_SWIPE_U ||
-                ev->type == UI_GESTURE_SWIPE_D || ev->type == UI_GESTURE_LONG_PRESS) {
-                if (!s_reader_slider_endpoint) reader_slider_move(ev->x);
-                return reader_slider_commit(ctx);
-            }
-            if (ev->type == UI_GESTURE_CANCEL) {
-                s_reader_slider = -1;
-                return APP_REDRAW_PAGE;
-            }
-        }
-    }
-    if (s_view == READING && s_reader_panel == READER_PANEL_FONT_PICKER &&
-        (ev->type == UI_GESTURE_SWIPE_U || ev->type == UI_GESTURE_SWIPE_D)) {
-        int count = ttf_font_count();
-        int pages = count > 0 ? (count + BOOK_FONT_PAGE - 1) / BOOK_FONT_PAGE : 1;
-        if (ev->type == UI_GESTURE_SWIPE_U && s_font_page + 1 < pages) ++s_font_page;
-        else if (ev->type == UI_GESTURE_SWIPE_D && s_font_page > 0) --s_font_page;
-        else return APP_REDRAW_NONE;
-        return APP_REDRAW_PAGE;
     }
     EpdRect start_rect = {0}, end_rect = {0};
     int start = control_at(ctx, ev->x0, ev->y0, &start_rect);
@@ -4537,14 +3549,7 @@ static app_redraw_t gesture_event(app_ctx_t* ctx, const ui_gesture_event_t* ev) 
             copy_text(s_manage_message, sizeof(s_manage_message), s_file_removed ? "文件已删除，进度清理失败，请重试" : "");
             return APP_REDRAW_PAGE;
         }
-        if (s_view == READING && !s_toolbar && !s_clear_confirm && ui_rect_hit(body_rect(), ev->x0, ev->y0)) {
-            save_progress();
-            set_reader_view(TOC);
-            s_message[0] = 0;
-            size_t toc = current_toc_position();
-            ctx->leaf = toc == SIZE_MAX ? 0 : (int)(toc / BOOK_TOC_ROWS);
-            return APP_REDRAW_PAGE;
-        }
+
     }
     if (ev->type == UI_GESTURE_TAP && !s_scan_pending) {
         if (start >= 0 && start == end) {
@@ -4556,11 +3561,7 @@ static app_redraw_t gesture_event(app_ctx_t* ctx, const ui_gesture_event_t* ev) 
             return action_at(ctx, ev->x0, ev->y0);
     }
     if (!s_clear_confirm && !s_scan_pending) {
-        if (s_view == READING && !s_toolbar && ui_rect_hit(body_rect(), ev->x0, ev->y0)) {
-            bool vertical = app_settings_reader_vertical_turn();
-            if (ev->type == (vertical ? UI_GESTURE_SWIPE_U : UI_GESTURE_SWIPE_L)) return turn_page(ctx, 1);
-            if (ev->type == (vertical ? UI_GESTURE_SWIPE_D : UI_GESTURE_SWIPE_R)) return turn_page(ctx, -1);
-        } else if (s_view == SHELF && (ev->type == UI_GESTURE_SWIPE_L || ev->type == UI_GESTURE_SWIPE_R)) {
+        if (s_view == SHELF && (ev->type == UI_GESTURE_SWIPE_L || ev->type == UI_GESTURE_SWIPE_R)) {
             app_redraw_t result = shelf_turn_page(ctx, ev->type == UI_GESTURE_SWIPE_L ? 1 : -1);
             if (result != APP_REDRAW_NONE) return result;
         } else if ((s_view == BULK && !s_batch_confirm) &&
@@ -4585,6 +3586,13 @@ static app_redraw_t on_key(app_ctx_t* ctx, int key) {
     if(s_document_zoom){if(key==UI_KEY_2){s_document_zoom=false;free(s_zoom_gray);s_zoom_gray=NULL;}else {uint32_t span=(uint32_t)((uint64_t)1216*s_document_image.width/684);uint32_t next=key==UI_KEY_1?(s_zoom_top>span?s_zoom_top-span:0):s_zoom_top+span;(void)prepare_document_zoom(next);}return APP_REDRAW_PAGE;}
     if(s_view==DOCUMENTS){if(s_document_menu){if(s_document_delete_confirm||s_document_clear_confirm)s_document_delete_confirm=s_document_clear_confirm=false;else s_document_menu=false;return APP_REDRAW_PAGE;}if(key==UI_KEY_2){ui_nav_request(ctx,0);return APP_REDRAW_NONE;}int next=ctx->leaf+(key==UI_KEY_1?-1:1);if(next>=0&&next<leaves()){ctx->leaf=next;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;}
 
+    if(s_view==READING&&s_toolbar){
+        s_reader_multi=(reader_multi_t){.blocked=true};
+        if(key==UI_KEY_2)return s_reader_panel==READER_PANEL_HELP?reader_help_close():reader_show_panel(READER_PANEL_NONE);
+        int next=s_control_page+(key==UI_KEY_1?-1:1),count=reader_control_count();
+        if(next>=0&&next*reader_control_rows()<count){s_control_page=next;return APP_REDRAW_PAGE;}
+        return APP_REDRAW_NONE;
+    }
     s_pressed_control = -1;
     if (s_view == TOC && s_toc_jump_open) {
         if (key == UI_KEY_2) s_toc_jump_open = s_toc_jump_drag = false;
@@ -4612,7 +3620,8 @@ static app_redraw_t on_key(app_ctx_t* ctx, int key) {
         else if (s_view == SHELF) { ui_nav_request(ctx, 3); return APP_REDRAW_NONE; }
         else if (s_view == READING) {
             s_reader_slider = -1;
-            s_reader_panel = s_reader_panel == READER_PANEL_TOOLS ? READER_PANEL_NONE : READER_PANEL_TOOLS;
+    s_progress_drag = false;
+            s_reader_panel = READER_PANEL_TOOLS;s_control_page=0;
             invalidate_prep();
         } else if (s_view == TOC) {
             set_reader_view(s_text ? READING : SHELF);
@@ -4631,28 +3640,11 @@ static app_redraw_t on_key(app_ctx_t* ctx, int key) {
     ctx->leaf = next;
     return APP_REDRAW_PAGE;
 }
-static app_redraw_t on_power_short(app_ctx_t* ctx) {
-    if (s_view != READING || !s_text || s_toolbar || s_clear_confirm ||
-        !app_settings_reader_power_turn()) return APP_REDRAW_NONE;
-    s_stats_activity_ms = ctx->now_ms;
-    app_redraw_t result = turn_page(ctx, 1);
-    return result == APP_REDRAW_NONE ? APP_REDRAW_DONE : result;
-}
-static app_redraw_t on_key_long(app_ctx_t* ctx, int key) {
-    if (key != UI_KEY_2) return APP_REDRAW_NONE;
-    if (s_view == TOC && s_toc_jump_open) {
-        s_toc_jump_open = s_toc_jump_drag = false;
-        return APP_REDRAW_PAGE;
-    }
-    if (s_view != READING && s_view != TOC) { ui_nav_request(ctx, 0); return APP_REDRAW_NONE; }
-    if (s_view == READING) {
-        if (app_settings_reader_hold_refresh()) return reader_manual_refresh(ctx);
-        return reader_return(ctx, true);
-    }
-    s_message[0] = 0;
-    set_reader_view(s_text ? READING : SHELF);
-    s_reader_panel = READER_PANEL_NONE;
-    return APP_REDRAW_PAGE;
+static app_redraw_t on_power_short(app_ctx_t* ctx) {(void)ctx;return APP_REDRAW_NONE;}
+static app_redraw_t on_key_long(app_ctx_t* ctx,int key){
+    if(key!=UI_KEY_2)return APP_REDRAW_NONE;
+    if(s_view==READING||s_view==TOC)return reader_return(ctx,true);
+    ui_nav_request(ctx,0);return APP_REDRAW_NONE;
 }
 static bool menu_handle_enabled(app_ctx_t* ctx) {
     (void)ctx;
@@ -4673,9 +3665,21 @@ static app_redraw_t shelf_turn_page(app_ctx_t *ctx, int direction) {
 
 static app_redraw_t on_tick(app_ctx_t* ctx) {
     track_ticket_stats(ctx);
+    const cst836u_touch_t *touch=ctx->touch;
+    bool multi_enabled=s_view==READING&&!s_toolbar&&!s_clear_confirm&&!s_document_zoom&&!ctx->consumed;
+    if(multi_enabled&&touch&&touch->count==2)multi_enabled=ui_rect_hit(reader_area(),touch->points[0].x,touch->points[0].y)&&ui_rect_hit(reader_area(),touch->points[1].x,touch->points[1].y);
+    int multi=reader_multi_feed(&s_reader_multi,multi_enabled,touch&&touch->touched,touch?touch->count:0,
+        touch?touch->points[0].x:0,touch?touch->points[0].y:0,touch?touch->points[1].x:0,touch?touch->points[1].y:0,ctx->now_ms);
+    if(multi>=0){s_stats_activity_ms=ctx->now_ms;return reader_execute_shortcut(ctx,multi);}
+
     if (ctx->consumed) return APP_REDRAW_NONE;
+    reader_prefetch_idle(ctx);
+    if(s_view==TOC&&s_toc_jump_open&&s_toc_jump_drag&&touch&&touch->touched&&touch->count==1)return reader_toc_preview(ctx,touch->x,false);
+    if(s_progress_drag&&s_reader_panel==READER_PANEL_TOOLS&&touch&&touch->touched&&touch->count==1)return reader_progress_preview(ctx,touch->x);
+    if(s_reader_slider>=0&&touch&&touch->touched&&touch->count==1&&!s_reader_slider_endpoint){app_redraw_t preview=reader_style_preview(ctx,touch->x);if(preview!=APP_REDRAW_NONE)return preview;}
     if (s_reader_notice[0] && ctx->now_ms >= s_reader_notice_until) {
         s_reader_notice[0] = 0;
+        if(s_view==READING&&s_toolbar)return APP_REDRAW_PAGE;
         if (s_view == READING) {
             // 区域刷新不会自动重绘帧缓冲；先移除提示，再只更新提示所在区域。
             // Area refreshes do not rerender the framebuffer; erase the toast before updating its region.
@@ -4732,21 +3736,11 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
         if (!ok) { free_book(); s_view = SHELF; copy_text(s_message, sizeof(s_message), "字体重排失败，请重新打开图书"); }
         return APP_REDRAW_PAGE;
     }
-    // SC7A20H 的有效输出节奏为 12.5Hz；80ms 轮询避免重复 I2C 读取同一采样。
-    // The effective SC7A20H cadence is 12.5Hz; 80ms avoids rereading the same sample over I2C.
-    if (s_shake_enabled && s_sensor_on && ctx->now_ms - s_sensor_ms >= 80) {
-        s_sensor_ms = ctx->now_ms;
-        if (!sc7a20h_powered(ctx->acc)) sensor_set(ctx, true);
-        sc7a20h_events_t ev;
-        if (sc7a20h_read_events(ctx->acc, &ev) == ESP_OK) {
-            bool suppressed = s_view != READING || s_toolbar || s_clear_confirm ||
-                              (ctx->touch && ctx->touch->touched) || ctx->now_ms - s_last_turn_ms < 800;
-            if (book_shake_feed(&s_shake, ev.aoi2_src & 0x40, suppressed, ctx->now_ms)) return turn_page(ctx, 1);
-        }
-    }
     return APP_REDRAW_NONE;
 }
 static void before_lock(app_ctx_t* ctx) {
+    s_progress_drag=false;
+    s_reader_multi=(reader_multi_t){.blocked=true};
     track_ticket_stats(ctx);
     save_progress();
     // 锁屏票根始终以当前正在阅读的书为准；不要依赖书架最近项是否已经同步。

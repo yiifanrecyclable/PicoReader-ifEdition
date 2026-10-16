@@ -84,6 +84,7 @@ ICONS = (
     "weread",            # 微信读书 / WeRead (IF original)
     "usb",               # USB连接·插头轮廓 / USB connection, plug silhouette
     "chevron-right",     # 书架下一页 / next shelf page
+    "settings",          # 阅读工具栏·更多 / reader toolbar, more
 )
 
 _NUMBER = re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")

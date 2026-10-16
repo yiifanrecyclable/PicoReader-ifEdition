@@ -85,6 +85,35 @@ static bool credentials_from_text(const char *ssid, const char *password, transf
     clear_secret(out, sizeof(*out)); return false;
 }
 
+// 有界多网络记录；首项为最近使用的网络。/ Bounded network history; the first entry is most recently used.
+#define TRANSFER_WIFI_PROFILE_MAX 8
+typedef struct {uint8_t version,count;transfer_credentials_t entries[TRANSFER_WIFI_PROFILE_MAX];} transfer_wifi_profiles_t;
+static inline bool profiles_valid(const transfer_wifi_profiles_t *p){
+    if(p->version!=1||p->count>TRANSFER_WIFI_PROFILE_MAX)return false;
+    for(unsigned i=0;i<p->count;++i){
+        if(!credentials_valid(&p->entries[i]))return false;
+        for(unsigned j=0;j<i;++j)if(!strcmp(p->entries[i].ssid,p->entries[j].ssid))return false;
+    }
+    const uint8_t *tail=(const uint8_t *)&p->entries[p->count];
+    for(size_t i=0;i<(TRANSFER_WIFI_PROFILE_MAX-p->count)*sizeof(transfer_credentials_t);++i)if(tail[i])return false;
+    return true;
+}
+static inline int profiles_find(const transfer_wifi_profiles_t *p,const char *ssid){
+    for(unsigned i=0;i<p->count;++i)if(!strcmp(p->entries[i].ssid,ssid))return (int)i;
+    return -1;
+}
+static inline void profiles_upsert(transfer_wifi_profiles_t *p,const transfer_credentials_t *next){
+    transfer_wifi_profiles_t result={.version=1,.count=1};result.entries[0]=*next;
+    for(unsigned i=0;i<p->count&&result.count<TRANSFER_WIFI_PROFILE_MAX;++i)
+        if(strcmp(p->entries[i].ssid,next->ssid))result.entries[result.count++]=p->entries[i];
+    clear_secret(p,sizeof(*p));*p=result;clear_secret(&result,sizeof(result));
+}
+static inline void profiles_remove(transfer_wifi_profiles_t *p,const char *ssid){
+    transfer_wifi_profiles_t result={.version=1};
+    for(unsigned i=0;i<p->count;++i)if(strcmp(p->entries[i].ssid,ssid))result.entries[result.count++]=p->entries[i];
+    clear_secret(p,sizeof(*p));*p=result;clear_secret(&result,sizeof(result));
+}
+
 static void scan_offer(read_pico_transfer_network_t out[READ_PICO_TRANSFER_SCAN_MAX], size_t *count,
                        const read_pico_transfer_network_t *candidate) {
     if (!candidate->ssid[0]) return;

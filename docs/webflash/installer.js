@@ -4,7 +4,7 @@
  */
 const button = document.getElementById('flash-installer');
 const status = document.getElementById('flash-status');
-const expectedVersion = '0.3.3-rc83-if.8';
+const expectedVersion = '0.1.1';
 const expectedParts = new Map([
   ['bootloader.bin', 0], ['partition-table.bin', 0x8000],
   ['firmware.bin', 0x10000], ['ota-data-initial.bin', 0xd10000],
@@ -23,7 +23,7 @@ async function start() {
     if (!response.ok) throw new Error('manifest');
     const manifest = await response.json();
     const build = manifest.builds?.[0];
-    if (manifest.name !== 'Pico Reader IF Edition' || manifest.version !== expectedVersion ||
+    if (manifest.name !== 'if-ink OS' || manifest.version !== expectedVersion ||
         manifest.builds.length !== 1 || build.chipFamily !== 'ESP32-S3' ||
         manifest.new_install_prompt_erase !== true || manifest.new_install_improv_wait_time !== 0 ||
         build.improv !== false || build.parts.length !== 4) throw new Error('target');
@@ -33,8 +33,8 @@ async function start() {
           seen.has(part.path) || !Number.isInteger(part.size) || part.size <= 0 ||
           !/^[a-f0-9]{64}$/.test(part.sha256) ||
           Math.ceil((part.offset + part.size) / 4096) * 4096 > regionEnds.get(part.path)) throw new Error('parts');
-      if (part.path === 'firmware.bin' && (part.size !== 3677408 ||
-          part.sha256 !== 'cfc4639b227a5dce9bba131e7d96abc1ee13ff6a893609648306e0c0ada472f3')) throw new Error('image');
+      if (part.path === 'firmware.bin' && (part.size !== 3558144 ||
+          part.sha256 !== '32ac79f7500fe478d506775c47f5db06819bdcb3c3993fca9e72a95a2802152d')) throw new Error('image');
       seen.add(part.path);
     }
     await import('./vendor/esp-web-tools-if-v1/install-button.js');

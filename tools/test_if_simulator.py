@@ -27,22 +27,18 @@ with tempfile.TemporaryDirectory(dir=root/'build',prefix='if-ui-isolated-') as t
     assert render('book-1')['pages']>=1
     assert render('book-1',path='/sdcard/books/示例.txt')['pages']>1
     probe=render('font-probe',path='龘中文，。「」English!?');assert probe['font_text_covered']
-    assert render('settings-0',events='t,340,337,340,337')['settings_page']==20
-    assert render('settings-0',events='t,340,471,340,471')['settings_page']==5
-    assert render('settings-0',events='t,340,675,340,675')['settings_page']==19
-    assert render('settings-0',events='t,340,877,340,877')['settings_page']==8
-    assert render('settings-0',aux=193,events='t,340,1022,340,1022')['settings_page']==11
+    geometry=render('settings-0')['settings_geometry'];wireless,display,device,maintenance,row_h=geometry[:5]
+    for y,page in ((wireless+row_h*3//2,20),(display+row_h//2,5),(display+row_h*3//2,19),(display+row_h*7//2,9),(device+row_h*7//2,11)):
+        scroll=max(0,y-1000)
+        assert render('settings-0',aux=scroll,events=f't,340,{y-scroll},340,{y-scroll}')['settings_page']==page,(y,page,scroll)
     assert render('settings-4')['settings_page']==0
     assert not any(f'settings-{i}' in VIEWS for i in (15,16,17,18))
     for retired in (15,16,17,18):assert render(f'settings-{retired}')['settings_page']==0
     for x in (98,342,610):assert render('settings-0',events=f't,{x},135,{x},135')['settings_page']==0
     render('settings-0');settings_frame=(build/'frame.bin').read_bytes()
-    for y in tuple(range(84,99))+tuple(range(180,190)):
-        assert all(((settings_frame[y*342+x//2]>>(4 if x%2 else 0))&15)==14 for x in range(36,648)),y
-    for y in range(84,190):
-        assert ((settings_frame[y*342+647//2]>>4)&15)==14,y
-    assert any(settings_frame[y*342+x//2]!=238 for y in range(100,139) for x in range(42,500))
-    assert any(settings_frame[y*342+x//2]!=238 for y in range(150,176) for x in range(42,500))
+    # 身份区域无外框和旧头像按钮；文字上下留白。 / Identity has no border or retired avatar actions.
+    assert all(((settings_frame[y*342+x//2]>>(4 if x%2 else 0))&15)==14 for y in range(84,93) for x in range(36,648))
+    assert any(settings_frame[y*342+x//2]!=238 for y in range(100,190) for x in range(42,600))
     # 四个等宽全高矩形选中区域，深灰底白图标；角落也能导航。
     # Four full-height rectangular quarters use dark-gray selection and white icons; corners remain tappable.
     def tone(frame,x,y):return (frame[y*342+x//2]>>(4 if x%2 else 0))&15

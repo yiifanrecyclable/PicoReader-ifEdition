@@ -24,7 +24,9 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='input-pages-') as tmp:
         assert result.returncode==0,(native,result.stderr)
         return json.loads(result.stdout),(build/'frame.bin').read_bytes()
     # Every page uses byte-identical key rows; captions/candidates and commit labels may vary.
-    entries=[('settings-19','',0),('settings-23','',0),('settings-0',tap(340,675),0),('settings-20',tap(340,254),0),('settings-20',tap(340,354),0),('settings-20',tap(340,454),0),('files-2','',0),('book-7','',0),('book-6','',0),('transfer-3','',0)]
+    layout=render('settings-0')[0]['settings_geometry'];signature_y=layout[1]+layout[4]+layout[4]//2
+    cloud=render('settings-20')[0]['settings_geometry'];folder_y,account_y,password_y=[y+cloud[4]//2 for y in cloud[11:14]]
+    entries=[('settings-19','',0),('settings-23','',0),('settings-0',tap(340,signature_y),0),('settings-20',tap(340,folder_y),0),('settings-20',tap(340,account_y),0),('settings-20',tap(340,password_y),0),('files-2','',0),('book-7','',0),('book-6','',0),('transfer-3','',0)]
     crop=None
     for native,steps,aux in entries:
         info,frame=render(native,steps,aux)
@@ -42,7 +44,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='input-pages-') as tmp:
     values=[p for p in (build/'nvs').rglob('status_sig') if not p.parent.name.startswith('.')];assert len(values)==1 and values[0].read_bytes()==b'abc\0',[(p.relative_to(build).as_posix(),p.read_bytes()) for p in values]
     render('settings-19');assert values[0].read_bytes()==b'abc\0'
     # Exact full-pinyin phrase selection is available through the native signature page.
-    info,_=render('settings-0',events(tap(340,675),clear,letters('yuedu'),tap(136,718),done));assert info['settings_page']==0
+    info,_=render('settings-0',events(tap(340,signature_y),clear,letters('yuedu'),tap(136,718),done));assert info['settings_page']==0
     values=[p for p in (build/'nvs').rglob('status_sig') if not p.parent.name.startswith('.')];assert len(values)==1 and values[0].read_bytes()=='阅读\0'.encode()
     # Rename preserves the locked extension; invalid names remain editable and retry succeeds.
     info,_=render('files-2',events(clear,language,letters('abc'),tap(188,1152),tap(250,1055),done));assert info['files_view']==2 and (card/'books/Test.txt').exists()
@@ -55,7 +57,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='input-pages-') as tmp:
     info,_=render('book-9',events(tap(550,251),letters('test'),cancel));assert info['book_view']==9
     info,_=render('transfer-3',events(letters('short'),done));assert info['transfer_view']==3
     info,_=render('transfer-3',events(letters('dummy'),cancel));assert info['transfer_view']==2
-    info,_=render('settings-20',events(tap(340,454),letters('dummy'),cancel));assert info['settings_page']==20
+    info,_=render('settings-20',events(tap(340,password_y),letters('dummy'),cancel));assert info['settings_page']==20
     # 首页格言共用输入、取消不改数据；保存及留空均持久化并返回首页。
     # Home quotes share input; cancel preserves data, save/blank persist and return home.
     assert render('settings-21',tap(340,608))[0]['settings_page']==23

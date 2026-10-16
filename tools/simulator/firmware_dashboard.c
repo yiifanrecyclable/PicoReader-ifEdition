@@ -15,3 +15,9 @@ void simulator_dashboard(uint8_t *fb,const uint32_t *days,const char *events){
  simulator_replay(&ctx,on_gesture,on_key,events);render(&ctx,fb);
  if(ctx.request_app)simulator_route=app_index_of(ctx.request_app);
 }
+
+int simulator_home_geometry(int item) {
+ home_geometry_t g=home_geometry();
+ const int values[]={g.content_y,g.row_height,g.rows,g.grid_y,g.col_x,g.col_step,g.row_step,g.month_x,g.week_y,g.heat_title,g.recent_rule,g.recent_title};
+ return item>=0 && item<(int)(sizeof(values)/sizeof(values[0]))?values[item]:0;
+}

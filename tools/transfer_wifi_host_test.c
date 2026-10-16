@@ -44,7 +44,9 @@ typedef int esp_err_t;
 typedef unsigned nvs_handle_t;
 enum { ESP_OK, ESP_ERR_NVS_NOT_FOUND, ESP_ERR_INVALID_STATE, ESP_ERR_INVALID_ARG, ESP_FAIL };
 enum { NVS_READONLY, NVS_READWRITE };
-static transfer_credentials_t committed, staged;
+static transfer_wifi_profiles_t committed, staged;
+static transfer_credentials_t legacy;
+static bool legacy_present;
 static bool present, pending_present;
 static int fail_open, fail_write, fail_commit, handles;
 static esp_err_t nvs_open(const char *name, int mode, nvs_handle_t *handle) {
@@ -53,19 +55,22 @@ static esp_err_t nvs_open(const char *name, int mode, nvs_handle_t *handle) {
     ++handles; *handle = 1; staged = committed; pending_present = present; return ESP_OK;
 }
 static esp_err_t nvs_get_blob(nvs_handle_t handle, const char *key, void *out, size_t *size) {
-    assert(handle == 1 && !strcmp(key, "credentials"));
-    if (!present) return ESP_ERR_NVS_NOT_FOUND;
-    assert(*size >= sizeof(committed)); *size = sizeof(committed); memcpy(out, &committed, *size); return ESP_OK;
+    assert(handle == 1);
+    const void *record; size_t bytes;
+    if (!strcmp(key, "profiles")) {
+        if (!present) return ESP_ERR_NVS_NOT_FOUND;
+        record = &committed; bytes = sizeof(committed);
+    } else {
+        assert(!strcmp(key, "credentials"));
+        if (!legacy_present) return ESP_ERR_NVS_NOT_FOUND;
+        record = &legacy; bytes = sizeof(legacy);
+    }
+    assert(*size >= bytes); *size = bytes; memcpy(out, record, bytes); return ESP_OK;
 }
 static esp_err_t nvs_set_blob(nvs_handle_t handle, const char *key, const void *in, size_t size) {
-    assert(handle == 1 && !strcmp(key, "credentials") && size == sizeof(staged));
+    assert(handle == 1 && !strcmp(key, "profiles") && size == sizeof(staged));
     if (fail_write) return ESP_FAIL;
     memcpy(&staged, in, size); pending_present = true; return ESP_OK;
-}
-static esp_err_t nvs_erase_key(nvs_handle_t handle, const char *key) {
-    assert(handle == 1 && !strcmp(key, "credentials"));
-    if (fail_write) return ESP_FAIL;
-    pending_present = false; return present ? ESP_OK : ESP_ERR_NVS_NOT_FOUND;
 }
 static esp_err_t nvs_commit(nvs_handle_t handle) {
     assert(handle == 1);
@@ -75,9 +80,56 @@ static esp_err_t nvs_commit(nvs_handle_t handle) {
 static void nvs_close(nvs_handle_t handle) { assert(handle == 1); --handles; clear_secret(&staged, sizeof(staged)); }
 #include "../components/read_pico_transfer/transfer_credentials_store.h"
 
+static void test_saved_networks(void) {
+    present = false; legacy_present = true;
+    assert(credentials_from_text("legacy-network", "12345678", &legacy));
+    transfer_wifi_profiles_t profiles;
+    assert(load_profiles(&profiles) == ESP_OK && profiles.count == 1);
+    assert(!strcmp(profiles.entries[0].ssid, "legacy-network"));
+    transfer_credentials_t next;
+    for (int i = 0; i < 10; ++i) {
+        char name[33]; snprintf(name, sizeof(name), "saved-%d", i);
+        assert(credentials_from_text(name, "12345678", &next));
+        assert(store_credentials(&next) == ESP_OK && !handles);
+    }
+    assert(load_profiles(&profiles) == ESP_OK && profiles.count == TRANSFER_WIFI_PROFILE_MAX);
+    assert(profiles_find(&profiles, "saved-0") < 0);
+    assert(profiles_find(&profiles, "saved-2") == 7);
+    // 选择旧网络保留密码并移到首位，不影响其他网络。/ Selecting an old network retains its password and promotes it without losing peers.
+    next = profiles.entries[profiles_find(&profiles, "saved-3")];
+    assert(store_credentials(&next) == ESP_OK);
+    assert(load_profiles(&profiles) == ESP_OK && profiles.count == 8);
+    assert(!strcmp(profiles.entries[0].ssid, "saved-3") && !strcmp(profiles.entries[0].password, "12345678"));
+    assert(credentials_from_text("saved-3", "changed-pass", &next));
+    assert(store_credentials(&next) == ESP_OK);
+    assert(load_profiles(&profiles) == ESP_OK && profiles.count == 8);
+    assert(!strcmp(profiles.entries[0].password, "changed-pass"));
+    profiles_remove(&profiles, "saved-3");
+    assert(store_profiles(&profiles) == ESP_OK);
+    assert(load_profiles(&profiles) == ESP_OK && profiles.count == 7 && profiles_find(&profiles, "saved-3") < 0);
+    assert(profiles_find(&profiles, "saved-9") >= 0);
+    // 重复记录和脏尾部不能成为有效凭据；空新记录阻止旧凭据复活。/ Reject duplicates and dirty tails; a new empty record prevents legacy resurrection.
+    profiles.entries[1] = profiles.entries[0];
+    assert(store_profiles(&profiles) == ESP_ERR_INVALID_ARG);
+    assert(load_profiles(&profiles) == ESP_OK);
+    profiles.entries[7].version = 1;
+    assert(store_profiles(&profiles) == ESP_ERR_INVALID_ARG);
+    assert(store_credentials(NULL) == ESP_OK);
+    assert(load_profiles(&profiles) == ESP_OK && profiles.count == 0 && legacy_present);
+    committed.version = 2;
+    assert(load_profiles(&profiles) == ESP_ERR_INVALID_STATE);
+    assert(store_credentials(&next) == ESP_ERR_INVALID_STATE);
+    assert(store_credentials(NULL) == ESP_OK);
+    legacy_present = false;
+    clear_secret(&legacy, sizeof(legacy));
+    clear_secret(&next, sizeof(next));
+    clear_secret(&profiles, sizeof(profiles));
+}
+
 static bool parse(const char *json, transfer_credentials_t *c) { return parse_credentials(json, strlen(json), c); }
 int main(void) {
     test_body_deadline();
+    test_saved_networks();
     bool stopping = false, uploading = false;
     assert(admission_begin(stopping, &uploading));
     assert(!admission_stop(&stopping, uploading) && !stopping);
@@ -124,7 +176,7 @@ int main(void) {
     assert(store_credentials(&c) == ESP_FAIL && !handles);
     assert(load_credentials(&old) == ESP_FAIL && old.version == 0);
     fail_open = 0;
-    assert(store_credentials(NULL) == ESP_OK && !present && !handles);
+    assert(store_credentials(NULL) == ESP_OK && present && committed.count == 0 && !handles);
     assert(load_credentials(&old) == ESP_OK && old.version == 0);
     assert(store_credentials(NULL) == ESP_OK && !handles);
     const char *bad[] = {"{}", "[]", "null", "{\"ssid\":\"\",\"password\":\"12345678\"}",

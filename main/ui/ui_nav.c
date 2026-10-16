@@ -9,8 +9,8 @@
 #include "ui_nav_icons.h"
 // Modified 2026-10-06: compact icon-only Lucide tabs and full local date/time in the status bar.
 // 中文：状态栏左侧统一显示完整本地日期与时间，签名按可用宽度避让。
-// 中文：选中导航铺满等宽矩形区域，使用深灰底白色图标。
-// English: Selected navigation fills its equal-width rectangular quarter with dark gray and a white icon.
+// 中文：选中导航与主体白底连接，阴影只落在较低的灰色未选中区。
+// English: Active white navigation joins the body; shadows fall only on the recessed gray tabs.
 // 中文：底栏改用Lucide官方图标，入口名称按用户要求调整。
 #include <stdio.h>
 #include <string.h>
@@ -22,9 +22,9 @@
 #include "ui_kit.h"
 #include "settings.h"
 #define UI_NAV_NETWORK_ICON_PX 28
-#define UI_STATUS_TIME_PX 24
+#define UI_STATUS_TIME_PX UI_STATUS_PERCENT_PX
 #define UI_STATUS_PERCENT_PX 28
-#define UI_STATUS_SIGNATURE_PX 21
+#define UI_STATUS_SIGNATURE_PX UI_STATUS_PERCENT_PX
 
 void ui_nav_back(uint8_t *fb, int x, int y) {
     // 参考系统题头缩小返回键，中心仍保持在 y=113。/ Match the smaller reference back control while retaining the title centerline.
@@ -38,19 +38,50 @@ void ui_nav_wifi_icon(uint8_t *fb, int cx, int cy, int size, uint8_t gray) {
     if (fb && size >= 16 && size <= 40) ui_draw_icon(fb, cx, cy, size, UI_ICON_WIFI, gray);
 }
 
-void ui_nav_draw(uint8_t *fb, int active) {
-    epd_fill_rect((EpdRect){0, UI_NAV_TOP, UI_LOCK_WIDTH, UI_LOCK_HEIGHT - UI_NAV_TOP}, 0xe0, fb);
-    ui_hairline(fb, UI_NAV_TOP, 0, UI_LOCK_WIDTH, UI_GRAY_LIGHT);
-    for (int i = 0; i < 4; ++i) {
-        int center = (i * 2 + 1) * UI_LOCK_WIDTH / 8;
-        bool selected = i == active;
-        if (selected) epd_fill_rect((EpdRect){i * UI_LOCK_WIDTH / 4, UI_NAV_TOP,
-                                              UI_LOCK_WIDTH / 4, UI_NAV_HEIGHT}, UI_NAV_ACTIVE_GRAY, fb);
-        static const ui_icon_t tabs[] = {UI_ICON_HOUSE, UI_ICON_LIBRARY_BIG,
-                                       UI_ICON_FOLDER_OPEN, UI_ICON_SLIDERS_HORIZONTAL};
-        ui_draw_icon(fb, center, UI_NAV_TOP + UI_NAV_HEIGHT / 2, 44, tabs[i],
-                     selected ? UI_GRAY_WHITE : UI_GRAY_BLACK);
+// 用五档原生灰阶从白边渐淡至按钮底色；转角不叠加加深。
+// Fade five native gray levels from the white edge into the button background without double-darkening corners.
+static void nav_recess_shadow(uint8_t *fb, int left, int width, bool white_left, bool white_right) {
+    const int reach = 7;
+    for (int d = 0; d < reach; ++d) {
+        int shade = 4 - 4 * d / (reach - 1);
+        uint8_t gray = UI_NAV_INACTIVE_GRAY - shade * 0x11;
+        int start = left + (white_left ? d : 0);
+        int end = left + width - (white_right ? d : 0);
+        epd_fill_rect((EpdRect){start, UI_NAV_TOP + d, end - start, 1}, gray, fb);
+        if (white_left)
+            epd_fill_rect((EpdRect){left + d, UI_NAV_TOP + d + 1, 1, UI_NAV_HEIGHT - d - 1}, gray, fb);
+        if (white_right)
+            epd_fill_rect((EpdRect){left + width - d - 1, UI_NAV_TOP + d + 1, 1, UI_NAV_HEIGHT - d - 1}, gray, fb);
     }
+}
+
+void ui_nav_draw(uint8_t *fb, int active) {
+    // 白色主体及选中区在上，灰色按钮在下；图标最后绘制以保持清晰。
+    // Raise the white body and selected tab above gray buttons; draw icons last for clarity.
+    for(int i=0;i<4;++i) {
+        int left=i*UI_LOCK_WIDTH/4,width=UI_LOCK_WIDTH/4;
+        bool selected=i==active;
+        epd_fill_rect((EpdRect){left,UI_NAV_TOP,width,UI_NAV_HEIGHT},selected?UI_GRAY_WHITE:UI_NAV_INACTIVE_GRAY,fb);
+        if(!selected)nav_recess_shadow(fb,left,width,i>0&&i-1==active,i<3&&i+1==active);
+        static const ui_icon_t tabs[]={UI_ICON_HOUSE,UI_ICON_LIBRARY_BIG,UI_ICON_FOLDER_OPEN,UI_ICON_SLIDERS_HORIZONTAL};
+        ui_draw_icon(fb,left+width/2,UI_NAV_TOP+UI_NAV_HEIGHT/2,44,tabs[i],selected?UI_GRAY_BLACK:UI_GRAY_WHITE);
+    }
+    for(int i=1;i<4;++i) {
+        if(i==active || i-1==active)continue;
+        int x=i*UI_LOCK_WIDTH/4;
+        epd_fill_rect((EpdRect){x,UI_NAV_TOP,1,UI_NAV_HEIGHT},UI_GRAY_SECTION_LINE,fb);
+    }
+}
+
+EpdRect ui_nav_pager_rect(int direction) {
+    return (EpdRect){direction<0?36:604,UI_NAV_PAGER_TOP,44,50};
+}
+void ui_nav_draw_pager(uint8_t *fb,int count,const char *unit,int page,int pages) {
+    char label[80];snprintf(label,sizeof(label),"%d%s · %02d/%02d",count,unit,page+1,pages);
+    int y=UI_NAV_PAGER_TOP+24,px=ui_text_fit_px(UI_TEXT_CAPTION,label,484,44);
+    ui_text_fixed_vc(fb,342,y,px,label,EPD_DRAW_ALIGN_CENTER,false);
+    ui_draw_icon(fb,58,y,28,UI_ICON_CHEVRON_LEFT,page>0?0:0x90);
+    ui_draw_icon(fb,626,y,28,UI_ICON_CHEVRON_RIGHT,page+1<pages?0:0x90);
 }
 
 // 空心电池内使用固定黑色实心闪电，低电量时仍清楚可见。
@@ -67,12 +98,7 @@ void ui_nav_status(uint8_t *fb) {
     const pmu_snapshot_t *pmu = read_pico_pmu_get();
     if (now < 1704067200 && pmu && pmu->time_synced && pmu->unix_sec >= 1704067200)
         now = pmu->unix_sec;
-    char clock[32] = "--:--";
-    if (now > 1704067200) {
-        time_t china = now + 8 * 3600;
-        struct tm date;
-        if (gmtime_r(&china, &date)) strftime(clock, sizeof(clock), "%Y-%m-%d %H:%M", &date);
-    }
+    char clock[64];app_settings_format_status_clock(now,clock,sizeof(clock));
     const int status_center_y = 40;
     // 固定状态栏字号，让系统字体缩放时文字仍与图标共用中心线。
     // Keep status type fixed so text and glyphs share one centerline at every system font scale.

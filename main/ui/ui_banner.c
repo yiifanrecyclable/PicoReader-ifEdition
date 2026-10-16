@@ -13,7 +13,7 @@
 #include "ui_lunar.h"
 #include "esp_heap_caps.h"
 static const char *const longest_date="2088年12月30日 · 星期三 · 癸亥猪年闰腊月三十";
-static const char *const brand="Pico Reader · if Edition · MindReset";
+static const char *const brand="if-ink OS · MindReset";
 static int width(const char *text,bool custom,int px){return custom?ttf_text_width_px(px,text):ui_text_fixed_width_px(px,text);}
 static int ink_height(int px,const char *text,bool custom){int a=0,b=0;if(custom)ttf_measure_line_px(px,text,&a,&b);else ui_text_fixed_measure_px(px,text,&a,&b);return a+b;}
 ui_banner_positions_t ui_banner_positions_size(const char *date,int quote_px){

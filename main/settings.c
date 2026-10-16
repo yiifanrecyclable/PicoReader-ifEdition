@@ -11,6 +11,7 @@
  */
 
 #include "settings.h"
+#include "book/reader_input.h"
 
 #include <stdio.h>
 #include <stddef.h>
@@ -35,21 +36,22 @@
 #define NVS_KEY_DEVICE_NAME "dev_name"
 #define NVS_KEY_AVATAR "dev_avatar"
 #define NVS_KEY_STATUS_SIGNATURE "status_sig"
+#define NVS_KEY_STATUS_DATE "status_date"
+#define NVS_KEY_IDLE_SLEEP "idle_sleep"
 #define NVS_KEY_FONT "font"
 #define NVS_KEY_SYS_FONT "sys_font"
 #define NVS_KEY_SYS_SIZE "sys_size"
-#define NVS_KEY_SYS_CONTRAST "sys_contrast"
 #define NVS_KEY_LOCK_STYLE "lock_ui"
 #define NVS_KEY_WALLPAPER "wallpaper"
 #define NVS_KEY_WAKE "lwake"
 #define NVS_KEY_BOOT "lboot"
 #define NVS_KEY_PICKUP "pickup"
 #define NVS_KEY_BOOK_PX "bk_px"
-#define NVS_KEY_BOOK_SHAKE "bk_shake"
 #define NVS_KEY_READER_FULL "rd_gc16"
 #define NVS_KEY_READER_TURN "rd_turn"
 #define NVS_KEY_POWER_TURN "rd_power"
 #define NVS_KEY_IMMERSIVE "rd_immersive"
+#define NVS_KEY_FULLSCREEN "rd_fullscreen"
 #define NVS_KEY_HIDE_IMAGES "rd_no_image"
 #define NVS_KEY_HOLD_REFRESH "rd_hold_full"
 #define NVS_KEY_VERTICAL_TURN "rd_vertical"
@@ -72,22 +74,27 @@ static bool s_home_full_refresh;
 static char s_device_name[64] = "Pico";
 static char s_avatar[288];
 static char s_status_signature[96];
+static uint8_t s_idle_sleep_minutes=5;
+static uint8_t s_status_date; // 高位隐藏日期，低位保留格式。/ High bit hides date; low bits retain format.
 static char s_font[FONT_PATH_MAX];
 static char s_system_font[FONT_PATH_MAX];
+static uint8_t system_size_preset(uint8_t value) {
+    return value < 110 ? 100 : value < 130 ? 120 : value < 150 ? 140 : 160;
+}
 static uint8_t s_system_size = 120;
-static uint8_t s_system_contrast = 100;
-static uint8_t s_lock_style;
+static uint8_t s_lock_style = 1;
 static char s_wallpaper[288];
 static uint8_t s_last_wake;
 static uint8_t s_last_boot;
 static bool s_pickup_wake;
 static uint8_t s_book_px = 48;
-static bool s_book_shake;
+
 static uint8_t s_reader_full_pages = 15;
 static uint8_t s_reader_turn_effect;
 static uint8_t s_book_line = 130, s_book_para = 50, s_book_margin = 36;
 static bool s_reader_power_turn;
 static bool s_reader_immersive;
+static bool s_reader_fullscreen;
 static bool s_reader_hide_images;
 static bool s_reader_hold_refresh;
 static bool s_reader_vertical_turn;
@@ -97,6 +104,9 @@ static uint8_t s_book_indent = 2;
 static char s_books_dir[MEDIA_DIR_MAX] = "/sdcard/books";
 static char s_fonts_dir[MEDIA_DIR_MAX] = "/sdcard/fonts";
 static void nvs_put_u8(const char* key, uint8_t value);
+static bool idle_sleep_valid(uint8_t value){return value==0||value==1||value==3||value==5||value==10||value==30;}
+static bool status_date_valid(uint8_t value) {return !(value&0x78) && (value&7)<APP_STATUS_DATE_FORMAT_COUNT;}
+
 
 static bool valid_media_dir(const char* path) {
     if (!path || strncmp(path, "/sdcard/", 8) || !path[8] ||
@@ -113,18 +123,6 @@ static bool valid_media_dir(const char* path) {
         if (!end) break;
         p = end + 1;
     }
-    return true;
-}
-
-static bool set_media_dir(char *dst, const char *key, const char *path) {
-    if (!valid_media_dir(path)) return false;
-    nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return false;
-    esp_err_t err = nvs_set_str(h, key, path);
-    if (err == ESP_OK) err = nvs_commit(h);
-    nvs_close(h);
-    if (err != ESP_OK) return false;
-    strlcpy(dst, path, MEDIA_DIR_MAX);
     return true;
 }
 
@@ -158,6 +156,10 @@ void app_settings_init(void) {
 
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return;
+    uint8_t idle=5;
+    if(nvs_get_u8(h,NVS_KEY_IDLE_SLEEP,&idle)==ESP_OK&&idle_sleep_valid(idle))s_idle_sleep_minutes=idle;
+    uint8_t date=0;
+    if(nvs_get_u8(h,NVS_KEY_STATUS_DATE,&date)==ESP_OK && status_date_valid(date))s_status_date=date;
     uint8_t raw = APP_SLEEP_DEEP;
     if (nvs_get_u8(h, NVS_KEY_SLEEP, &raw) == ESP_OK && raw <= APP_SLEEP_OFF) {
         s_sleep = (app_sleep_mode_t)raw;
@@ -186,14 +188,10 @@ void app_settings_init(void) {
     uint8_t system_size = 120;
     if (nvs_get_u8(h, NVS_KEY_SYS_SIZE, &system_size) == ESP_OK &&
         system_size >= 100 && system_size <= 200 && system_size % 10 == 0)
-        s_system_size = system_size;
-    uint8_t system_contrast = 100;
-    if (nvs_get_u8(h, NVS_KEY_SYS_CONTRAST, &system_contrast) == ESP_OK &&
-        system_contrast >= 100 && system_contrast <= 140 && system_contrast % 10 == 0)
-        s_system_contrast = system_contrast;
+        s_system_size = system_size_preset(system_size);
     uint8_t lock_style = 0;
     if (nvs_get_u8(h, NVS_KEY_LOCK_STYLE, &lock_style) == ESP_OK && lock_style <= 1)
-        s_lock_style = lock_style;
+        s_lock_style = 1;
     size_t wallpaper_len = sizeof(s_wallpaper);
     if (nvs_get_str(h, NVS_KEY_WALLPAPER, s_wallpaper, &wallpaper_len) != ESP_OK ||
         strncmp(s_wallpaper, "/sdcard/", 8)) s_wallpaper[0] = 0;
@@ -203,9 +201,10 @@ void app_settings_init(void) {
     if (nvs_get_u8(h, NVS_KEY_BOOT, &boot) == ESP_OK) s_last_boot = boot;
     uint8_t pickup = 0;
     if (nvs_get_u8(h, NVS_KEY_PICKUP, &pickup) == ESP_OK) s_pickup_wake = pickup != 0;
-    uint8_t book_px = 48, book_shake = 0;
+    uint8_t book_px = 48;
     if (nvs_get_u8(h, NVS_KEY_BOOK_PX, &book_px) == ESP_OK) s_book_px = valid_book_px(book_px);
-    if (nvs_get_u8(h, NVS_KEY_BOOK_SHAKE, &book_shake) == ESP_OK) s_book_shake = book_shake != 0;
+    uint8_t fullscreen=0;
+    if(nvs_get_u8(h,NVS_KEY_FULLSCREEN,&fullscreen)==ESP_OK&&fullscreen<=1)s_reader_fullscreen=fullscreen!=0;
     uint8_t reader_full_pages = 15;
     if (nvs_get_u8(h, NVS_KEY_READER_FULL, &reader_full_pages) == ESP_OK &&
         (reader_full_pages == 0 || reader_full_pages == 5 || reader_full_pages == 10 ||
@@ -239,16 +238,12 @@ void app_settings_init(void) {
         if (line >= 110 && line <= 150) s_book_line = line;
         else if (line == 180) s_book_line = 150;
     }
-    if (nvs_get_u8(h, NVS_KEY_BOOK_PARA, &para) == ESP_OK && para <= 75 && para % 25 == 0) s_book_para = para;
-    if (nvs_get_u8(h, NVS_KEY_BOOK_MARGIN, &margin) == ESP_OK && margin >= 24 && margin <= 60)
+    if (nvs_get_u8(h, NVS_KEY_BOOK_PARA, &para) == ESP_OK && para <= 75) s_book_para = para;
+    if (nvs_get_u8(h, NVS_KEY_BOOK_MARGIN, &margin) == ESP_OK && margin >= 8 && margin <= 60)
         s_book_margin = margin;
-    char folder[MEDIA_DIR_MAX];
-    size_t folder_len = sizeof(folder);
-    if (nvs_get_str(h, NVS_KEY_BOOKS_DIR, folder, &folder_len) == ESP_OK && valid_media_dir(folder))
-        strlcpy(s_books_dir, folder, sizeof(s_books_dir));
-    folder_len = sizeof(folder);
-    if (nvs_get_str(h, NVS_KEY_FONTS_DIR, folder, &folder_len) == ESP_OK && valid_media_dir(folder))
-        strlcpy(s_fonts_dir, folder, sizeof(s_fonts_dir));
+    // 标准目录固定，忽略旧版自定义路径但不移动任何文件。/ Ignore legacy custom roots without moving files.
+    strlcpy(s_books_dir,"/sdcard/books",sizeof(s_books_dir));
+    strlcpy(s_fonts_dir,"/sdcard/fonts",sizeof(s_fonts_dir));
     nvs_close(h);
     ESP_LOGI(
         TAG, "sleep mode %s, font %s",
@@ -323,6 +318,37 @@ void app_settings_set_status_signature(const char *signature) {
         strlcpy(s_status_signature, signature, sizeof(s_status_signature));
 }
 
+uint8_t app_settings_idle_sleep_minutes(void){return s_idle_sleep_minutes;}
+void app_settings_set_idle_sleep_minutes(uint8_t minutes){
+    if(!idle_sleep_valid(minutes))return;
+    s_idle_sleep_minutes=minutes;nvs_put_u8(NVS_KEY_IDLE_SLEEP,minutes);
+}
+
+bool app_settings_status_show_date(void){return !(s_status_date&0x80);}
+void app_settings_set_status_show_date(bool show){
+    s_status_date=(s_status_date&7)|(show?0:0x80);nvs_put_u8(NVS_KEY_STATUS_DATE,s_status_date);
+}
+app_status_date_format_t app_settings_status_date_format(void){return (app_status_date_format_t)(s_status_date&7);}
+void app_settings_set_status_date_format(app_status_date_format_t format){
+    if((unsigned)format>=APP_STATUS_DATE_FORMAT_COUNT)return;
+    s_status_date=(s_status_date&0x80)|(uint8_t)format;nvs_put_u8(NVS_KEY_STATUS_DATE,s_status_date);
+}
+void app_settings_format_status_clock(time_t now,char *out,size_t capacity){
+    if(!out||!capacity)return;
+    snprintf(out,capacity,"--:--");
+    if(now<1704067200)return;
+    time_t china=now+8*3600;struct tm date;
+    if(!gmtime_r(&china,&date))return;
+    if(!app_settings_status_show_date()){strftime(out,capacity,"%H:%M",&date);return;}
+    switch(app_settings_status_date_format()){
+        case APP_STATUS_DATE_SLASH:strftime(out,capacity,"%Y/%m/%d %H:%M",&date);break;
+        case APP_STATUS_DATE_DOT:strftime(out,capacity,"%Y.%m.%d %H:%M",&date);break;
+        case APP_STATUS_DATE_MONTH_DAY:strftime(out,capacity,"%m-%d %H:%M",&date);break;
+        case APP_STATUS_DATE_MONTH_DAY_SLASH:strftime(out,capacity,"%m/%d %H:%M",&date);break;
+        default:strftime(out,capacity,"%Y-%m-%d %H:%M",&date);break;
+    }
+}
+
 const char* app_settings_font_path(void) {
     return s_font;
 }
@@ -341,20 +367,14 @@ void app_settings_set_system_font_path(const char* path) {
 uint8_t app_settings_system_font_size(void) { return s_system_size; }
 void app_settings_set_system_font_size(uint8_t percent) {
     if (percent < 100 || percent > 200 || percent % 10 || percent == s_system_size) return;
+    percent = system_size_preset(percent);
     s_system_size = percent;
     nvs_put_u8(NVS_KEY_SYS_SIZE, percent);
 }
-uint8_t app_settings_system_contrast(void) { return s_system_contrast; }
-void app_settings_set_system_contrast(uint8_t percent) {
-    if (percent < 100 || percent > 140 || percent % 10 || percent == s_system_contrast) return;
-    s_system_contrast = percent;
-    nvs_put_u8(NVS_KEY_SYS_CONTRAST, percent);
-}
 uint8_t app_settings_lock_style(void) { return s_lock_style; }
 void app_settings_set_lock_style(uint8_t style) {
-    if (style > 1 || style == s_lock_style) return;
-    s_lock_style = style;
-    nvs_put_u8(NVS_KEY_LOCK_STYLE, style);
+    (void)style;
+    s_lock_style = 1;
 }
 const char* app_settings_wallpaper_path(void) { return s_wallpaper; }
 void app_settings_set_wallpaper_path(const char* path) {
@@ -427,15 +447,6 @@ void app_settings_set_book_px(uint8_t px) {
     nvs_put_u8(NVS_KEY_BOOK_PX, px);
 }
 
-bool app_settings_book_shake(void) {
-    return s_book_shake;
-}
-
-void app_settings_set_book_shake(bool on) {
-    if (s_book_shake == on) return;
-    s_book_shake = on;
-    nvs_put_u8(NVS_KEY_BOOK_SHAKE, on ? 1 : 0);
-}
 uint8_t app_settings_reader_full_pages(void) { return s_reader_full_pages; }
 void app_settings_set_reader_full_pages(uint8_t pages) {
     if ((pages != 0 && pages != 5 && pages != 10 && pages != 15 && pages != 30) ||
@@ -455,6 +466,8 @@ void app_settings_set_reader_power_turn(bool on) {
     s_reader_power_turn = on;
     nvs_put_u8(NVS_KEY_POWER_TURN, on ? 1 : 0);
 }
+bool app_settings_reader_fullscreen(void){return s_reader_fullscreen;}
+void app_settings_set_reader_fullscreen(bool on){if(s_reader_fullscreen==on)return;s_reader_fullscreen=on;nvs_put_u8(NVS_KEY_FULLSCREEN,on?1:0);}
 bool app_settings_reader_immersive(void) { return s_reader_immersive; }
 void app_settings_set_reader_immersive(bool on) {
     if (s_reader_immersive == on) return;
@@ -521,13 +534,13 @@ void app_settings_set_book_line_spacing(uint8_t percent) {
 }
 uint8_t app_settings_book_margin(void) { return s_book_margin; }
 void app_settings_set_book_margin(uint8_t px) {
-    if (px < 24 || px > 60 || s_book_margin == px) return;
+    if (px < 8 || px > 60 || s_book_margin == px) return;
     s_book_margin = px;
     nvs_put_u8(NVS_KEY_BOOK_MARGIN, px);
 }
 uint8_t app_settings_book_paragraph_spacing(void) { return s_book_para; }
 void app_settings_set_book_paragraph_spacing(uint8_t percent) {
-    if (percent > 75 || percent % 25) return;
+    if (percent > 75) return;
     if (s_book_para == percent) return;
     s_book_para = percent;
     nvs_put_u8(NVS_KEY_BOOK_PARA, percent);
@@ -536,10 +549,10 @@ void app_settings_set_book_paragraph_spacing(uint8_t percent) {
 const char* app_settings_books_dir(void) { return s_books_dir; }
 const char* app_settings_fonts_dir(void) { return s_fonts_dir; }
 bool app_settings_set_books_dir(const char* path) {
-    return set_media_dir(s_books_dir, NVS_KEY_BOOKS_DIR, path);
+    return path && !strcmp(path,"/sdcard/books");
 }
 bool app_settings_set_fonts_dir(const char* path) {
-    return set_media_dir(s_fonts_dir, NVS_KEY_FONTS_DIR, path);
+    return path && !strcmp(path,"/sdcard/fonts");
 }
 
 #ifndef APP_SETTINGS_BACKUP_ROOT
@@ -666,6 +679,10 @@ static uint32_t backup_profile_checksum(const settings_backup_v1_t *backup, uint
     return hash;
 }
 
+static uint32_t backup_date_checksum(const settings_backup_v1_t *backup,uint8_t value){
+    return (backup_checksum(backup)^value)*16777619u;
+}
+
 static void backup_seal(settings_backup_v1_t *backup) {
     uint32_t value = backup_checksum(backup);
     for (int i = 0; i < 4; ++i) backup->checksum[i] = (uint8_t)(value >> (i * 8));
@@ -676,18 +693,20 @@ static bool backup_card_ready(void) {
     return read_pico_sd_get_info(&info) == ESP_OK && info.mounted;
 }
 
+static uint32_t backup_reader_checksum(const settings_backup_v1_t *,const reader_input_preferences_t *);
+
 static esp_err_t backup_save_to(const char *target, const char *temporary, const char *previous) {
     if (!backup_card_ready()) return ESP_ERR_INVALID_STATE;
     settings_backup_v1_t backup = {0};
-    memcpy(backup.magic, "PICOSET8", sizeof(backup.magic));
+    memcpy(backup.magic, "PICOSETB", sizeof(backup.magic));
     uint8_t *f = backup.flags;
     f[BK_SLEEP] = s_sleep;
     f[BK_PICKUP] = s_pickup_wake;
     f[BK_SYS_SIZE] = s_system_size;
-    f[BK_SYS_CONTRAST] = s_system_contrast;
+    f[BK_SYS_CONTRAST] = 100; // 退役字段保持旧备份格式兼容。/ Retired field preserves the legacy backup format.
     f[BK_LOCK] = s_lock_style;
     f[BK_BOOK_PX] = s_book_px;
-    f[BK_SHAKE] = s_book_shake;
+    f[BK_SHAKE] = 0; // 旧备份占位，不再启用晃动翻页。/ Retired backup slot never enables shake turning.
     f[BK_FULL_PAGES] = s_reader_full_pages;
     f[BK_TURN] = s_reader_turn_effect;
     f[BK_POWER_TURN] = s_reader_power_turn;
@@ -719,7 +738,8 @@ static esp_err_t backup_save_to(const char *target, const char *temporary, const
                                 (s_reader_hide_images ? 2 : 0) |
                                 (s_shelf_recent_sort ? 4 : 0) |
                                 (s_reader_hold_refresh ? 16 : 0) |
-                                (s_reader_vertical_turn ? 32 : 0);
+                                (s_reader_vertical_turn ? 32 : 0) |
+                                (s_reader_fullscreen ? 64 : 0);
     uint32_t profile_hash = backup_profile_checksum(&backup, extension[0], extension[1], extension[2], &profile);
     for (int i = 0; i < 4; ++i) profile.checksum[i] = (uint8_t)(profile_hash >> (i * 8));
 
@@ -744,6 +764,14 @@ static esp_err_t backup_save_to(const char *target, const char *temporary, const
     if (ok) ok = fwrite(&profile, 1, sizeof(profile), file) == sizeof(profile);
     if (ok) ok = fwrite(&wifi, 1, sizeof(wifi), file) == sizeof(wifi);
     if (ok) ok = fwrite(&cloud, 1, sizeof(cloud), file) == sizeof(cloud);
+    uint8_t display[6]={s_status_date,s_idle_sleep_minutes};
+    uint32_t display_hash=(backup_date_checksum(&backup,s_status_date)^s_idle_sleep_minutes)*16777619u;
+    for(int i=0;i<4;++i)display[i+2]=(uint8_t)(display_hash>>(i*8));
+    if(ok)ok=fwrite(display,1,sizeof(display),file)==sizeof(display);
+    reader_input_preferences_t reader_prefs;reader_input_export(&reader_prefs);
+    uint32_t reader_hash=backup_reader_checksum(&backup,&reader_prefs);uint8_t reader_seal[4];
+    for(int i=0;i<4;++i)reader_seal[i]=(uint8_t)(reader_hash>>(8*i));
+    if(ok)ok=fwrite(&reader_prefs,1,sizeof(reader_prefs),file)==sizeof(reader_prefs)&&fwrite(reader_seal,1,4,file)==4;
     backup_erase_secret(&cloud, sizeof(cloud));
     backup_erase_secret(&wifi, sizeof(wifi));
     if (ok) ok = book_history_backup_write(file) == ESP_OK;
@@ -793,7 +821,7 @@ static bool backup_valid(const settings_backup_v1_t *backup) {
     if ((memcmp(backup->magic, "PICOSET1", 8) && memcmp(backup->magic, "PICOSET2", 8) &&
          memcmp(backup->magic, "PICOSET3", 8) && memcmp(backup->magic, "PICOSET4", 8) &&
          memcmp(backup->magic, "PICOSET5", 8) && memcmp(backup->magic, "PICOSET6", 8) &&
-         memcmp(backup->magic, "PICOSET7", 8) && memcmp(backup->magic, "PICOSET8", 8)) ||
+         memcmp(backup->magic, "PICOSET7", 8) && memcmp(backup->magic, "PICOSET8", 8) && memcmp(backup->magic,"PICOSET9",8) && memcmp(backup->magic,"PICOSETA",8) && memcmp(backup->magic,"PICOSETB",8)) ||
         checksum != backup_checksum(backup)) return false;
     if (f[BK_SLEEP] > APP_SLEEP_OFF || f[BK_PICKUP] > 1 ||
         f[BK_SYS_SIZE] < 100 || f[BK_SYS_SIZE] > 200 || f[BK_SYS_SIZE] % 10 ||
@@ -805,8 +833,8 @@ static bool backup_valid(const settings_backup_v1_t *backup) {
         f[BK_TURN] > 1 || f[BK_POWER_TURN] > 1 || f[BK_IMMERSIVE] > 1 ||
         f[BK_TRACKING] > 4 || f[BK_READING_LINE] > 2 ||
         f[BK_LINE_SPACING] < 110 || f[BK_LINE_SPACING] > 150 ||
-        f[BK_MARGIN] < 24 || f[BK_MARGIN] > 60 ||
-        f[BK_PARAGRAPH] > 75 || f[BK_PARAGRAPH] % 25 ||
+        f[BK_MARGIN] < 8 || f[BK_MARGIN] > 60 ||
+        f[BK_PARAGRAPH] > 75 ||
         f[BK_SHELF] < 1 || f[BK_SHELF] > 4) return false;
     if (strnlen(backup->books_dir, sizeof(backup->books_dir)) == sizeof(backup->books_dir) ||
         strnlen(backup->fonts_dir, sizeof(backup->fonts_dir)) == sizeof(backup->fonts_dir)) return false;
@@ -819,6 +847,12 @@ static bool backup_valid(const settings_backup_v1_t *backup) {
 static bool backup_file_exists(const char *path, bool directory) {
     struct stat st;
     return stat(path, &st) == 0 && (directory ? S_ISDIR(st.st_mode) : S_ISREG(st.st_mode));
+}
+
+static uint32_t backup_reader_checksum(const settings_backup_v1_t *backup,const reader_input_preferences_t *prefs){
+    uint32_t hash=backup_checksum(backup);const uint8_t *bytes=(const uint8_t *)prefs;
+    for(size_t i=0;i<sizeof(*prefs);++i)hash=(hash^bytes[i])*16777619u;
+    return hash;
 }
 
 static esp_err_t backup_restore_from(const char *source, bool *mutated) {
@@ -854,7 +888,7 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
         }
     } else if (ok && (!memcmp(backup.magic, "PICOSET4", 8) || !memcmp(backup.magic, "PICOSET5", 8) ||
                       !memcmp(backup.magic, "PICOSET6", 8) || !memcmp(backup.magic, "PICOSET7", 8) ||
-                      !memcmp(backup.magic, "PICOSET8", 8))) {
+                      (!memcmp(backup.magic,"PICOSET8",8)||(!memcmp(backup.magic,"PICOSET9",8)||(!memcmp(backup.magic,"PICOSETA",8)||!memcmp(backup.magic,"PICOSETB",8)))))) {
         uint8_t extension[7];
         ok = fread(extension, 1, sizeof(extension), file) == sizeof(extension);
         if (ok) {
@@ -865,7 +899,7 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
                  stored == backup_shutdown_checksum(&backup, indent, rule_offset, staged_shutdown);
         }
         if (ok && ( !memcmp(backup.magic, "PICOSET5", 8) || !memcmp(backup.magic, "PICOSET6", 8) ||
-                    !memcmp(backup.magic, "PICOSET7", 8) || !memcmp(backup.magic, "PICOSET8", 8))) {
+                    !memcmp(backup.magic, "PICOSET7", 8) || (!memcmp(backup.magic,"PICOSET8",8)||(!memcmp(backup.magic,"PICOSET9",8)||(!memcmp(backup.magic,"PICOSETA",8)||!memcmp(backup.magic,"PICOSETB",8)))))) {
             ok = fread(&profile, 1, sizeof(profile), file) == sizeof(profile);
             if (ok) {
                 uint32_t stored = 0;
@@ -875,18 +909,36 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
                      strnlen(profile.device_name, sizeof(profile.device_name)) < sizeof(profile.device_name) &&
                      profile.device_name[0] &&
                      strnlen(profile.status_signature, sizeof(profile.status_signature)) < sizeof(profile.status_signature) &&
-                     profile.home_full_refresh <= 63 &&
+                     profile.home_full_refresh <= 127 &&
                      backup_path_valid(profile.avatar, sizeof(profile.avatar));
             }
         }
     }
+    uint8_t status_date=s_status_date,idle_minutes=s_idle_sleep_minutes;
+    reader_input_preferences_t reader_prefs;reader_input_export(&reader_prefs);
     long history_position = -1;
-    has_wifi = ok && (!memcmp(backup.magic, "PICOSET7", 8) || !memcmp(backup.magic, "PICOSET8", 8));
+    has_wifi = ok && (!memcmp(backup.magic, "PICOSET7", 8) || (!memcmp(backup.magic,"PICOSET8",8)||(!memcmp(backup.magic,"PICOSET9",8)||(!memcmp(backup.magic,"PICOSETA",8)||!memcmp(backup.magic,"PICOSETB",8)))));
     if (has_wifi) ok = fread(&wifi, 1, sizeof(wifi), file) == sizeof(wifi) && backup_wifi_valid(&wifi);
-    bool has_cloud = ok && !memcmp(backup.magic, "PICOSET8", 8);
+    bool has_cloud = ok && (!memcmp(backup.magic,"PICOSET8",8)||(!memcmp(backup.magic,"PICOSET9",8)||(!memcmp(backup.magic,"PICOSETA",8)||!memcmp(backup.magic,"PICOSETB",8))));
     if (has_cloud) ok = fread(&cloud, 1, sizeof(cloud), file) == sizeof(cloud) && backup_cloud_valid(&cloud);
+    if(ok && (!memcmp(backup.magic,"PICOSET9",8)||(!memcmp(backup.magic,"PICOSETA",8)||!memcmp(backup.magic,"PICOSETB",8)))){
+        uint8_t display[6]={0};bool with_idle=(!memcmp(backup.magic,"PICOSETA",8)||!memcmp(backup.magic,"PICOSETB",8));
+        size_t size=with_idle?6:5,offset=with_idle?2:1;
+        ok=fread(display,1,size,file)==size;
+        if(ok){uint32_t hash=0;for(int i=0;i<4;++i)hash|=(uint32_t)display[i+offset]<<(i*8);
+            uint32_t expected=backup_date_checksum(&backup,display[0]);
+            if(with_idle)expected=(expected^display[1])*16777619u;
+            ok=status_date_valid(display[0])&&(!with_idle||idle_sleep_valid(display[1]))&&hash==expected;
+            if(ok){status_date=display[0];if(with_idle)idle_minutes=display[1];}
+        }
+    }
+    bool has_reader=ok&&!memcmp(backup.magic,"PICOSETB",8);
+    if(has_reader){
+        uint8_t seal[4];ok=fread(&reader_prefs,1,sizeof(reader_prefs),file)==sizeof(reader_prefs)&&fread(seal,1,4,file)==4;
+        if(ok){uint32_t hash=0;for(int i=0;i<4;++i)hash|=(uint32_t)seal[i]<<(8*i);ok=reader_input_preferences_valid(&reader_prefs)&&hash==backup_reader_checksum(&backup,&reader_prefs);}
+    }
     bool has_history = ok && (!memcmp(backup.magic, "PICOSET6", 8) ||
-                              !memcmp(backup.magic, "PICOSET7", 8) || !memcmp(backup.magic, "PICOSET8", 8));
+                              !memcmp(backup.magic, "PICOSET7", 8) || (!memcmp(backup.magic,"PICOSET8",8)||(!memcmp(backup.magic,"PICOSET9",8)||(!memcmp(backup.magic,"PICOSETA",8)||!memcmp(backup.magic,"PICOSETB",8)))));
     if (has_history) {
         history_position = ftell(file);
         ok = history_position >= 0 && book_history_backup_validate(file);
@@ -916,10 +968,11 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
         backup.wallpaper[0] = 0;
         backup.flags[BK_LOCK] = 0;
     }
-    if (!backup.wallpaper[0]) backup.flags[BK_LOCK] = 0;
+    backup.flags[BK_LOCK] = 1;
+    backup.flags[BK_SYS_SIZE] = system_size_preset(backup.flags[BK_SYS_SIZE]);
     if (profile.avatar[0] && !backup_file_exists(profile.avatar, false)) profile.avatar[0] = 0;
-    if (!backup_file_exists(backup.books_dir, true)) strlcpy(backup.books_dir, "/sdcard/books", sizeof(backup.books_dir));
-    if (!backup_file_exists(backup.fonts_dir, true)) strlcpy(backup.fonts_dir, "/sdcard/fonts", sizeof(backup.fonts_dir));
+    strlcpy(backup.books_dir, "/sdcard/books", sizeof(backup.books_dir));
+    strlcpy(backup.fonts_dir, "/sdcard/fonts", sizeof(backup.fonts_dir));
 
     nvs_handle_t h;
     esp_err_t err = nvs_open(NVS_NS, NVS_READWRITE, &h);
@@ -931,18 +984,19 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
     if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_SHUTDOWN_MODE, staged_shutdown);
     if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_HOLD_REFRESH, (profile.home_full_refresh & 16) != 0);
     if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_VERTICAL_TURN, (profile.home_full_refresh & 32) != 0);
+    if(err==ESP_OK)err=nvs_set_u8(h,NVS_KEY_FULLSCREEN,(profile.home_full_refresh&64)!=0);
     if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_HOME_FULL, profile.home_full_refresh & 1);
     if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_HIDE_IMAGES, (profile.home_full_refresh & 2) != 0);
     if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_SHELF_RECENT, (profile.home_full_refresh & 4) != 0);
     if (err == ESP_OK) err = nvs_set_str(h, NVS_KEY_DEVICE_NAME, profile.device_name);
     if (err == ESP_OK) err = nvs_set_str(h, NVS_KEY_AVATAR, profile.avatar);
     if (err == ESP_OK) err = nvs_set_str(h, NVS_KEY_STATUS_SIGNATURE, profile.status_signature);
+    if(err==ESP_OK)err=nvs_set_u8(h,NVS_KEY_STATUS_DATE,status_date);
+    if(err==ESP_OK)err=nvs_set_u8(h,NVS_KEY_IDLE_SLEEP,idle_minutes);
     BACKUP_SET_U8(NVS_KEY_PICKUP, BK_PICKUP);
     BACKUP_SET_U8(NVS_KEY_SYS_SIZE, BK_SYS_SIZE);
-    BACKUP_SET_U8(NVS_KEY_SYS_CONTRAST, BK_SYS_CONTRAST);
     BACKUP_SET_U8(NVS_KEY_LOCK_STYLE, BK_LOCK);
     BACKUP_SET_U8(NVS_KEY_BOOK_PX, BK_BOOK_PX);
-    BACKUP_SET_U8(NVS_KEY_BOOK_SHAKE, BK_SHAKE);
     BACKUP_SET_U8(NVS_KEY_READER_FULL, BK_FULL_PAGES);
     BACKUP_SET_U8(NVS_KEY_READER_TURN, BK_TURN);
     BACKUP_SET_U8(NVS_KEY_POWER_TURN, BK_POWER_TURN);
@@ -965,6 +1019,8 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
     nvs_close(h);
     if (err != ESP_OK) { backup_erase_secret(&cloud, sizeof(cloud)); backup_erase_secret(&wifi, sizeof(wifi)); return err; }
 
+    if(has_reader){esp_err_t input_err=reader_input_import(&reader_prefs);if(input_err!=ESP_OK){backup_erase_secret(&cloud,sizeof(cloud));backup_erase_secret(&wifi,sizeof(wifi));return input_err;}}
+
     if (has_history) {
         file = fopen(source, "rb");
         if (!file) { backup_erase_secret(&cloud, sizeof(cloud)); backup_erase_secret(&wifi, sizeof(wifi)); return ESP_FAIL; }
@@ -986,18 +1042,19 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
     s_staged_shutdown = staged_shutdown != 0;
     s_reader_hold_refresh = (profile.home_full_refresh & 16) != 0;
     s_reader_vertical_turn = (profile.home_full_refresh & 32) != 0;
+    s_reader_fullscreen = (profile.home_full_refresh & 64) != 0;
     s_home_full_refresh = (profile.home_full_refresh & 1) != 0;
     s_reader_hide_images = (profile.home_full_refresh & 2) != 0;
     s_shelf_recent_sort = (profile.home_full_refresh & 4) != 0;
     strlcpy(s_device_name, profile.device_name, sizeof(s_device_name));
     strlcpy(s_avatar, profile.avatar, sizeof(s_avatar));
     strlcpy(s_status_signature, profile.status_signature, sizeof(s_status_signature));
+    s_status_date=status_date;
+    s_idle_sleep_minutes=idle_minutes;
     s_pickup_wake = f[BK_PICKUP];
-    s_system_size = f[BK_SYS_SIZE];
-    s_system_contrast = f[BK_SYS_CONTRAST];
-    s_lock_style = f[BK_LOCK];
+    s_system_size = system_size_preset(f[BK_SYS_SIZE]);
+    s_lock_style = 1;
     s_book_px = f[BK_BOOK_PX];
-    s_book_shake = f[BK_SHAKE];
     s_reader_full_pages = f[BK_FULL_PAGES];
     s_reader_turn_effect = f[BK_TURN];
     s_reader_power_turn = f[BK_POWER_TURN];

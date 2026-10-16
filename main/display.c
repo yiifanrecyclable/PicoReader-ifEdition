@@ -17,12 +17,31 @@
 #include "e0470_epaper_waveform.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "read_pico_board.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+
+// 刷屏、驱动释放和空闲断电共享递归锁，复合输出在最后才交还。/ Serialize scans, drive release and idle poweroff across composite outputs.
+static StaticSemaphore_t s_output_lock_storage;
+static SemaphoreHandle_t s_output_lock;
+static portMUX_TYPE s_output_init = portMUX_INITIALIZER_UNLOCKED;
+static SemaphoreHandle_t display_guard_begin(void) {
+    portENTER_CRITICAL(&s_output_init);
+    if (!s_output_lock) s_output_lock=xSemaphoreCreateRecursiveMutexStatic(&s_output_lock_storage);
+    portEXIT_CRITICAL(&s_output_init);
+    xSemaphoreTakeRecursive(s_output_lock,portMAX_DELAY);
+    return s_output_lock;
+}
+static void display_guard_end(SemaphoreHandle_t *lock) { xSemaphoreGiveRecursive(*lock); }
+#define DISPLAY_GUARD SemaphoreHandle_t output_guard __attribute__((cleanup(display_guard_end)))=display_guard_begin()
 
 static const char* TAG = "read_pico";
 static bool s_bulk_io;
 static int s_pclk_mhz = DISPLAY_PCLK_DEFAULT_MHZ;
 
 void display_set_bulk_io(bool active) {
+    DISPLAY_GUARD;
     s_bulk_io = active;
     ESP_LOGI(TAG, "bulk I/O scan margin %s", active ? "on" : "off");
 }
@@ -37,15 +56,32 @@ void display_set_bulk_io(bool active) {
 // 0 表示轨道已断电；否则是到期时间（ms），到点后主循环断电。
 // 0 means the rails are off; otherwise a deadline (ms) after which the loop powers them down.
 static int64_t rails_deadline_ms;
+static int64_t drive_release_retry_ms;
+
+void display_poweroff(void) {
+    DISPLAY_GUARD;
+    for(unsigned attempt=0;attempt<3;++attempt){
+        if(read_pico_epd_release_drive())break;
+        if(attempt<2)vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    rails_deadline_ms=drive_release_retry_ms=0;
+    epd_poweroff();
+}
 
 void rails_keepalive(void) {
+    DISPLAY_GUARD;
+    drive_release_retry_ms = read_pico_epd_release_drive() ? 0 : esp_timer_get_time()/1000+50;
     rails_deadline_ms = esp_timer_get_time() / 1000 + RAILS_IDLE_TIMEOUT_MS;
 }
 
 void rails_idle_check(int64_t now_ms) {
+    DISPLAY_GUARD;
+    if(drive_release_retry_ms && now_ms>=drive_release_retry_ms)
+        drive_release_retry_ms=read_pico_epd_release_drive()?0:now_ms+50;
     if (rails_deadline_ms != 0 && now_ms >= rails_deadline_ms) {
         rails_deadline_ms = 0;
-        epd_poweroff();
+        drive_release_retry_ms = 0;
+        display_poweroff();
     }
 }
 
@@ -98,6 +134,7 @@ static enum EpdDrawError hl_update(
 enum EpdDrawError update_display_mode(
     EpdiyHighlevelState* hl, enum EpdDrawMode mode
 ) {
+    DISPLAY_GUARD;
     use_scan_for(&E0470_WAVEFORM, mode);
     epd_poweron();
     enum EpdDrawError result = hl_update(hl, &E0470_WAVEFORM, mode, false, NULL, false);
@@ -108,6 +145,7 @@ enum EpdDrawError update_display_mode(
 enum EpdDrawError update_display_mode_diff(
     EpdiyHighlevelState* hl, enum EpdDrawMode mode
 ) {
+    DISPLAY_GUARD;
     use_scan_for(&E0470_WAVEFORM, mode);
     epd_poweron();
     enum EpdDrawError result = hl_update(hl, &E0470_WAVEFORM, mode, false, NULL, true);
@@ -116,6 +154,7 @@ enum EpdDrawError update_display_mode_diff(
 }
 
 enum EpdDrawError update_display_fast_page(EpdiyHighlevelState* hl) {
+    DISPLAY_GUARD;
     if (APP_UI_FAST_GC16_EVERY > 0 && ++s_page_refreshes >= APP_UI_FAST_GC16_EVERY) {
         s_page_refreshes = 0;
         use_scan_for(&E0470_WAVEFORM, MODE_GC16);
@@ -141,6 +180,7 @@ enum EpdDrawError update_display_fast_page(EpdiyHighlevelState* hl) {
 enum EpdDrawError update_display_from_white_with(
     EpdiyHighlevelState* hl, const EpdWaveform* waveform, enum EpdDrawMode mode
 ) {
+    DISPLAY_GUARD;
     use_scan_for(waveform, mode);
     epd_poweron();
     epd_hl_waveform(hl, waveform);
@@ -152,10 +192,12 @@ enum EpdDrawError update_display_from_white_with(
 }
 
 enum EpdDrawError update_display_from_white(EpdiyHighlevelState* hl) {
+    DISPLAY_GUARD;
     return update_display_from_white_with(hl, &E0470_WAVEFORM, MODE_GC16);
 }
 
 enum EpdDrawError update_display_white(EpdiyHighlevelState* hl) {
+    DISPLAY_GUARD;
     epd_hl_set_all_white(hl);
     return update_display_full(hl);
 }
@@ -163,16 +205,19 @@ enum EpdDrawError update_display_white(EpdiyHighlevelState* hl) {
 static bool s_white_exit;
 
 void display_hold_white_exit(bool hold) {
+    DISPLAY_GUARD;
     s_white_exit = hold;
 }
 
 bool display_take_white_exit(void) {
+    DISPLAY_GUARD;
     const bool hold = s_white_exit;
     s_white_exit = false;
     return hold;
 }
 
 enum EpdDrawError update_display_full(EpdiyHighlevelState* hl) {
+    DISPLAY_GUARD;
     use_scan_for(&E0470_WAVEFORM, MODE_GC16);
     epd_poweron();
     enum EpdDrawError result = hl_update(hl, &E0470_WAVEFORM, MODE_GC16, true, NULL, false);
@@ -181,6 +226,7 @@ enum EpdDrawError update_display_full(EpdiyHighlevelState* hl) {
 }
 
 enum EpdDrawError update_display_image_gray(EpdiyHighlevelState* hl) {
+    DISPLAY_GUARD;
     // 图片保留十六级原始灰阶；白底和完整 48 相波形稳定呈现层次。
     // Images keep sixteen source grays; a white baseline and the full 48-phase table preserve tones.
     use_scan_for(&E0470_FULL_WAVEFORM, MODE_GC16);
@@ -199,6 +245,7 @@ enum EpdDrawError update_display_image_gray(EpdiyHighlevelState* hl) {
 enum EpdDrawError update_display_with(
     EpdiyHighlevelState* hl, const EpdWaveform* waveform, enum EpdDrawMode mode
 ) {
+    DISPLAY_GUARD;
     use_scan_for(waveform, mode);
     epd_poweron();
     epd_hl_waveform(hl, waveform);
@@ -212,6 +259,7 @@ enum EpdDrawError update_display_area_with(
     EpdiyHighlevelState* hl, const EpdWaveform* waveform, enum EpdDrawMode mode,
     EpdRect area
 ) {
+    DISPLAY_GUARD;
     use_scan_for(waveform, mode);
     epd_poweron();
     epd_hl_waveform(hl, waveform);
@@ -225,6 +273,7 @@ enum EpdDrawError update_display_area_diff_with(
     EpdiyHighlevelState* hl, const EpdWaveform* waveform, enum EpdDrawMode mode,
     EpdRect area
 ) {
+    DISPLAY_GUARD;
     use_scan_for(waveform, mode);
     epd_poweron();
     epd_hl_waveform(hl, waveform);
@@ -238,6 +287,7 @@ enum EpdDrawError update_display_area_full_with(
     EpdiyHighlevelState* hl, const EpdWaveform* waveform, enum EpdDrawMode mode,
     EpdRect area
 ) {
+    DISPLAY_GUARD;
     use_scan_for(waveform, mode);
     epd_poweron();
     epd_hl_waveform(hl, waveform);
@@ -249,6 +299,7 @@ enum EpdDrawError update_display_area_full_with(
 
 enum EpdDrawError update_display_water_turn(EpdiyHighlevelState* hl, EpdRect area,
                                              e0470_turn_dir_t dir) {
+    DISPLAY_GUARD;
     // 只在阅读页显式调用；普通页面仍走原刷新路径。
     // Only the reader calls this path; ordinary pages keep their existing refresh policy.
     read_pico_epd_use_scan(READ_PICO_EPD_SCAN_FAST);
@@ -282,6 +333,7 @@ enum EpdDrawError update_display_water_turn(EpdiyHighlevelState* hl, EpdRect are
 int display_pclk_mhz(void) { return s_pclk_mhz; }
 
 void guard_draw_result(EpdiyHighlevelState* hl, enum EpdDrawError result) {
+    DISPLAY_GUARD;
     if (!(result & EPD_DRAW_EMPTY_LINE_QUEUE)) return;
     s_pclk_mhz = DISPLAY_PCLK_SAFE_MHZ;
     read_pico_epd_set_pclk(DISPLAY_PCLK_SAFE_MHZ);

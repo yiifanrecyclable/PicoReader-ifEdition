@@ -10,6 +10,8 @@
 extern int simulator_route,simulator_transfer_mode;
 int simulator_transfer_entry(void){return s_usb_requested?3:s_hotspot_requested?2:s_wifi_upload_requested?1:s_wifi_setup_requested?4:0;}
 int simulator_transfer(uint8_t *fb,int view,int mode,const char *events){
+ bool settings_entry=mode==3;
+ if(settings_entry){mode=READ_PICO_TRANSFER_MODE_STA;app_transfer_request_wifi_setup();}
  app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);
  s_view=(transfer_view_t)view;s_mode=(read_pico_transfer_mode_t)mode;
  s_usb_entry=mode==2;s_usb_capacity_bytes=8ULL*1024*1024*1024;
@@ -24,5 +26,5 @@ int simulator_transfer(uint8_t *fb,int view,int mode,const char *events){
  prepare_qr();simulator_replay(&ctx,on_gesture,on_key,events);render(&ctx,fb);
  if(ctx.request_app)simulator_route=app_index_of(ctx.request_app);
  if(ctx.request_return)simulator_route=2;
- simulator_transfer_mode=s_usb_entry?2:s_mode;return s_view;
+ simulator_transfer_mode=s_wifi_settings_only?3:s_usb_entry?2:s_mode;return s_view;
 }

@@ -25,6 +25,7 @@ static size_t* s_pages;
 static size_t s_count;
 static size_t s_capacity;
 static char* s_line;
+static size_t s_line_capacity;
 static EpdRect s_rect;
 static int s_px;
 static bool s_markdown;
@@ -199,7 +200,7 @@ void book_layout_free(void) {
     free(s_images);
     free(s_page_img_start);
     s_pages = NULL;
-    s_line = NULL;
+    s_line = NULL; s_line_capacity=0;
     s_images = NULL;
     s_page_img_start = NULL;
     s_image_count = s_image_capacity = 0;
@@ -351,6 +352,16 @@ static bool table_next_page(void *ctx, size_t offset) {
 }
 
 // 折行时保留原文字节位置；CRLF 算一个段落边界。/ Preserve source offsets while wrapping; CRLF is one paragraph boundary.
+// 行缓冲按需增长，不按整章长度常驻。/ Grow line scratch on demand instead of retaining chapter-sized scratch.
+static bool line_reserve(size_t need) {
+    if(need<=s_line_capacity)return true;
+    if(need>s_len+1)return false;
+    size_t capacity=s_line_capacity?s_line_capacity:256;
+    while(capacity<need){if(capacity>(s_len+1)/2){capacity=s_len+1;break;}capacity*=2;}
+    char *next=heap_caps_realloc(s_line,capacity,PSRAM_CAPS);
+    if(!next)return false;
+    s_line=next;s_line_capacity=capacity;return true;
+}
 static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bool* heading,
                       int* line_width, int* indent, uint8_t* align,
                       int* margin_before, int* margin_after) {
@@ -422,6 +433,7 @@ static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bo
     while (end < limit && s_text[end] != '\r' && s_text[end] != '\n') {
         size_t n = codepoint_size(s_text + end, s_len - end);
         if (!n) return false;
+        if(!line_reserve(end-visible_off+n+1))return false;
         uint32_t cp = codepoint_value(s_text + end, n);
         // 字体逐字取整后累加 advance；单字测量避免反复扫描整行前缀。
         // Font advances are rounded per glyph and summed; measure each glyph once instead of every prefix.
@@ -567,7 +579,8 @@ bool book_layout_build_blocks(const char* utf8, size_t len, const blk_t* blocks,
     s_rect = rect;
     if (s_markdown) markdown_table_configure(utf8, s_table_cells, s_styles, s_style_count,
                                             rect, px, s_line_percent, s_tracking_px);
-    s_line = heap_caps_malloc(len + 1, PSRAM_CAPS);
+    s_line_capacity=len+1<256?len+1:256;
+    s_line = heap_caps_malloc(s_line_capacity, PSRAM_CAPS);
     size_t off = s_lead_skip;
     if (!s_line) goto fail;
     size_t visible_off = skip_image_spacing(off);
@@ -703,30 +716,32 @@ static void draw_markdown_line(uint8_t *fb, int x, int baseline, int px, bool he
     }
 }
 
-void book_layout_draw_page(uint8_t* fb, size_t page, EpdRect rect, int px) {
-    if (!fb || page >= s_count || px != s_px || rect.width != s_rect.width ||
+int book_layout_draw_slice(uint8_t* fb,size_t page,EpdRect rect,int px,book_layout_cursor_t *cursor) {
+    if (!cursor || !fb || page >= s_count || px != s_px || rect.width != s_rect.width ||
         rect.height != s_rect.height || rect.x < 0 || rect.y < 0 ||
-        rect.x > INT_MAX - rect.width || rect.y > INT_MAX - rect.height) return;
+        rect.x > INT_MAX - rect.width || rect.y > INT_MAX - rect.height) return -1;
     // 走回退路径的"整页插图"没有图片记录：这里没有文字可画，那张图由调用方绘制，直接返回。
     // 有记录时说明图片已经流进正文，文字和图一起排。
     // A whole-page image from the fallback path has no record: there is no text to draw here and
     // the caller draws that image, so return. With records the image flowed into the page and the
     // text lays out alongside it.
-    if (book_layout_page_image(page) >= 0 && book_layout_page_image_count(page) == 0) return;
-    size_t off = s_pages[page];
+    if(cursor->started&&(cursor->generation!=s_generation||cursor->page!=page))return -1;
+    if (book_layout_page_image(page) >= 0 && book_layout_page_image_count(page) == 0) return 1;
+    size_t off = cursor->started?cursor->offset:s_pages[page];
     size_t end = page + 1 < s_count ? s_pages[page + 1] : s_len;
-    int64_t used = page == 0 ? s_lead_height : 0;
+    int64_t used = cursor->started?cursor->used:page == 0 ? s_lead_height : 0;
     // 本页插图按出现顺序排在池里，游标走到哪个块就用哪条记录，不必再查表。
     // This page's images sit in the pool in encounter order, so the walk just consumes them in
     // turn instead of looking each one up.
-    uint32_t img_at = s_page_img_start ? s_page_img_start[page] : 0;
+    uint32_t img_at = cursor->started?cursor->image_at:s_page_img_start ? s_page_img_start[page] : 0;
+    cursor->started=true;cursor->generation=s_generation;cursor->page=page;
     const uint32_t img_end = s_page_img_start ? s_page_img_start[page + 1] : 0;
     while (off < end) {
         size_t table_next;
         if (s_markdown && markdown_table_draw(fb, page, off, rect, &table_next, &used)) {
-            if (table_next <= off) return;
+            if (table_next <= off) return -1;
             off = table_next;
-            continue;
+            cursor->offset=off;cursor->used=used;cursor->image_at=img_at;return off>=end?1:0;
         }
         size_t visible = skip_image_spacing(off);
         if (visible != off) { off = visible; continue; }
@@ -746,10 +761,10 @@ void book_layout_draw_page(uint8_t* fb, size_t page, EpdRect rect, int px) {
         int line_px, line_width, indent, margin_before, margin_after;
         uint8_t align;
         if (!take_line(off, &next, &paragraph_end, &line_px, &heading,
-                       &line_width, &indent, &align, &margin_before, &margin_after)) return;
+                       &line_width, &indent, &align, &margin_before, &margin_after)) return -1;
         int line_height = line_height_for(line_px);
         int leading = used ? margin_before : 0;
-        if (used + leading + line_height > rect.height) return;
+        if (used + leading + line_height > rect.height) return -1;
         used += leading;
         if (s_line[0]) {
             if (s_reading_line) {
@@ -793,5 +808,12 @@ void book_layout_draw_page(uint8_t* fb, size_t page, EpdRect rect, int px) {
         used += line_height;
         if (paragraph_end) used += gap_for(line_height, heading) + margin_after;
         off = next;
+        cursor->offset=off;cursor->used=used;cursor->image_at=img_at;return off>=end?1:0;
     }
+    cursor->offset=off;cursor->used=used;cursor->image_at=img_at;return 1;
+}
+
+void book_layout_draw_page(uint8_t* fb,size_t page,EpdRect rect,int px) {
+    book_layout_cursor_t cursor={0};
+    while(book_layout_draw_slice(fb,page,rect,px,&cursor)==0){}
 }

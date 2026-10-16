@@ -1,19 +1,17 @@
-# Pico Reader IF Edition 对应源码
+# if-ink OS v0.1.1 构建与重新链接
 
-对应版本0.3.3-rc83-if.8，项目Read_Pico_IF，基于Pico Reader rc83。包括应用、修改后的epdiy、固定第三方组件、内建字体和实际构建配置，可修改并重新编译、链接。许可见LICENSE、THIRD_PARTY_NOTICES.md及组件许可证。
+项目身份保留 `Read_Pico_IF`，用于兼容已安装的 IF 本地升级。源码包括应用、修改后的 epdiy、固定依赖和实际构建配置。应用 SHA256：`32ac79f7500fe478d506775c47f5db06819bdcb3c3993fca9e72a95a2802152d`。
 
-## 构建和重新链接
-
-按Espressif官方指南安装ESP-IDF及其工具链，使用SDK提交fff9895c82d744c7237be8847347bdd1b07c6643（v6.1开发树）：https://github.com/espressif/esp-idf/tree/fff9895c82d744c7237be8847347bdd1b07c6643 。执行SDK安装脚本及export脚本后，在本目录执行：
+安装 Espressif ESP-IDF 与工具链，SDK 固定提交 [`fff9895c82d744c7237be8847347bdd1b07c6643`](https://github.com/espressif/esp-idf/tree/fff9895c82d744c7237be8847347bdd1b07c6643)（v6.1 开发树）。按 SDK 官方说明执行 install/export 脚本，然后在本仓库执行：
 
 ```sh
 idf.py -B build -D SDKCONFIG=sdkconfig.release build
 ```
 
-源码在main/、components/、managed_components/，依赖固定于dependencies.lock。另需联网安装SDK及工具链。改动epdiy或应用后使用相同命令重新编译链接；依照新生成build/flash_args写入自己的四段产物，不要以原发布应用替代重新链接结果。此构建不以安全启动或Flash加密限制用户替换。构建时间会影响二进制摘要，不要求逐字节复现。sdkconfig.defaults为产品默认；CI配置只供编译检查，不替代板级时序。
+实际发布配置为 `sdkconfig.release`；依赖版本在 `dependencies.lock`，对应源码在 `components/` 与 `managed_components/`。SDK/工具链首次安装需联网。构建包含实际内建字库，不需要先装字体生成依赖；如修改内建字库，按 `tools/gen_builtin_font.py` 及 `assets/fonts/README.md` 说明准备字体。完整 TF 字体和拼音词库另在资源包。
 
-额外TF标准字体不链接进应用，按assets/fonts/README.md下载准备，或使用独立资源包；此源码附内建实际使用字库。
+替换 `components/epdiy` 中接口兼容的实现或修改应用后，执行相同命令重新编译链接；按新构建的 `build/flash_args` 安装自己的四段产物，不能用原发布应用替代自己的重新链接结果。未启用安全启动或 Flash 加密来限制更换固件。编译时间会影响镜像摘要，不要求逐字节重现。源码中的 `sdkconfig.defaults` 是板级产品默认，CI 配置不能替代它。
 
-主体Apache-2.0，epdiy LGPL-3.0-or-later，其他组件依各自许可。原作者：https://wegooo-cell.github.io/read-pico-reader/ ，原项目：https://github.com/wegooo-cell/read-pico-reader 。IF为独立衍生版本。
+主体 Apache-2.0；epdiy LGPL-3.0-or-later。随版本提供完整可修改应用源码、库源码、固定配置与构建说明，允许修改库及调试相关改动；原许可、上游修改说明和其他组件许可见 `LICENSE`、`THIRD_PARTY_NOTICES.md`、组件目录与下载许可包。
 
-发布应用SHA256：cfc4639b227a5dce9bba131e7d96abc1ee13ff6a893609648306e0c0ada472f3。
+来源：[Pico Reader / kiikoread](https://github.com/wegooo-cell/read-pico-reader)；[原作者主页](https://wegooo-cell.github.io/read-pico-reader/)。if-ink OS 是独立衍生版本。

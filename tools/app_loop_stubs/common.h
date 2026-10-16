@@ -51,11 +51,13 @@ void epd_poweroff(void);
 const char* app_settings_font_path(void);
 bool app_settings_reader_power_turn(void);
 bool app_settings_staged_shutdown(void);
+uint8_t app_settings_idle_sleep_minutes(void);
 bool ttf_font_path_is_builtin(const char*);
 bool ttf_font_ready(void);
 bool ttf_font_is_builtin(void);
 const char* ttf_font_path(void);
 int ttf_font_open(const char*);
+void ttf_font_unload(void);
 int ttf_font_open_builtin(void);
 typedef struct { bool present, mounted; } read_pico_sd_info_t;
 int read_pico_sd_get_info(read_pico_sd_info_t*);
@@ -64,3 +66,11 @@ int read_pico_sd_remount(void);
 
 int epd_rotated_display_width(void);
 void epd_fill_triangle(int,int,int,int,int,int,uint8_t,uint8_t*);
+
+// 中文：电量历史接入仅借用缓存快照。/ Cached battery snapshot for history integration.
+typedef struct { bool present, quick_ok, time_synced; uint32_t unix_sec; uint16_t qb_mv, battery_mv; } pmu_snapshot_t;
+const pmu_snapshot_t *read_pico_pmu_get(void);
+static inline int pmu_battery_percent(const pmu_snapshot_t *p) { (void)p; return -1; }
+static inline bool pmu_battery_charging(const pmu_snapshot_t *p) { (void)p; return false; }
+
+esp_err_t read_pico_sd_detect(bool *present);

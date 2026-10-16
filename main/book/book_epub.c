@@ -31,15 +31,21 @@
 #define EPUB_ID_CAP 128
 #define EPUB_TITLE_CAP 160
 #define EPUB_ENTRY_MAX (4u * 1024u * 1024u)
-#define EPUB_CACHE_VERSION 11u
+#define EPUB_CACHE_VERSION 102u // IF池化索引独立版本 / IF pooled-index format
 #define EPUB_META_CACHE_VERSION 1u
 #define EPUB_CSS_MAX (256u * 1024u)
 #define EPUB_CSS_FILE_MAX (128u * 1024u)
 
+// 不搬移的块链表保存按实际长度分配的标题/锚点。/ Stable blocks pool variable-length titles and anchors.
+typedef struct text_block {
+    struct text_block *next;
+    size_t used,cap;
+    char data[];
+} text_block_t;
 typedef struct {
     int zip_index; ///< ZIP 条目 / ZIP entry
     uint32_t offset; ///< spine 累计原始字节 / Cumulative source bytes in spine
-    char title[EPUB_TITLE_CAP]; ///< UTF-8 目录标题 / UTF-8 navigation title
+    const char *title; ///< 池内标题 / Pooled title
     bool titled; ///< 已从目录命名 / Named from navigation
     bool nav_titled; ///< 正式 NCX/NAV 指向本章 / Linked by the authored navigation
     bool heading_checked; ///< 缺目录标题时已检查正文 / Body checked for a missing navigation label
@@ -49,8 +55,8 @@ typedef struct {
     uint16_t chapter;
     bool valid, visible;
     uint32_t source_offset; ///< XHTML 起始标签偏移；没有时为 UINT32_MAX / Source tag offset or UINT32_MAX
-    char title[EPUB_TITLE_CAP];
-    char anchor[EPUB_ID_CAP];
+    const char* title;
+    const char* anchor;
 } nav_entry_t;
 struct book_epub {
     zip_reader_t *zip; ///< ZIP 所有权 / ZIP ownership
@@ -67,6 +73,7 @@ struct book_epub {
     size_t authored_count;
     size_t navigation_capacity;
     bool body_scanned; ///< 正文编号标题已检查并缓存 / Numbered body headings already indexed
+    text_block_t *text_blocks,*text_last;
 };
 typedef struct {
     uint32_t count;
@@ -100,6 +107,89 @@ typedef struct {
 } xml_t;
 static void *psram(size_t n);
 
+/* ---- 标题与锚点池 / Title and anchor pool ---- */
+
+#define TEXT_BLOCK_MIN 4096u
+
+static const char* text_blocks_intern(text_block_t** head, text_block_t** last,
+                                      const char* text, size_t len) {
+    if (text == NULL) return NULL;
+    text_block_t* blk = *last;
+    if (blk == NULL || blk->cap - blk->used < len + 1) {
+        size_t cap = len + 1 > TEXT_BLOCK_MIN ? len + 1 : TEXT_BLOCK_MIN;
+        text_block_t* next = psram(sizeof(*next) + cap);
+        if (next == NULL) return NULL;
+        next->next = NULL;
+        next->used = 0;
+        next->cap = cap;
+        if (blk != NULL) blk->next = next;
+        else *head = next;
+        *last = next;
+        blk = next;
+    }
+    char* at = blk->data + blk->used;
+    memcpy(at, text, len);
+    at[len] = 0;
+    blk->used += len + 1;
+    return at;
+}
+
+static void text_blocks_free(text_block_t** head, text_block_t** last) {
+    text_block_t* blk = *head;
+    while (blk != NULL) {
+        text_block_t* next = blk->next;
+        free(blk);
+        blk = next;
+    }
+    *head = NULL;
+    *last = NULL;
+}
+
+static const char* text_intern(book_epub_t* book, const char* text, size_t len) {
+    const char* at = text_blocks_intern(&book->text_blocks, &book->text_last, text, len);
+    // 池分配失败时退回一个静态空串：标题在几十处被 strlen/strcmp 直接读，不能是空指针。
+    // Falls back to a static empty string if the pool cannot grow: titles are read with
+    // strlen/strcmp in dozens of places and must never be null.
+    return at != NULL ? at : "";
+}
+
+// 定长字段变成指针之后，原先靠 sizeof 兜住的长度要显式截断。
+// With fixed fields turned into pointers, the length those sizeof expressions used to bound has
+// to be applied explicitly.
+static const char* text_intern_cap(book_epub_t* book, const char* text, size_t cap) {
+    size_t len = strlen(text);
+    if (len > cap - 1) len = cap - 1;
+    return text_intern(book, text, len);
+}
+
+static void text_pool_free(book_epub_t* book) {
+    text_blocks_free(&book->text_blocks, &book->text_last);
+}
+
+// 池里的字符串按 uint16 长度加字节写盘；上限就是它替下来的那个定长缓冲。
+// A pooled string is written as a uint16 length plus its bytes; the cap is the fixed buffer it
+// replaced.
+static bool cache_write_text(FILE* cache, const char* text) {
+    size_t len = text != NULL ? strlen(text) : 0;
+    if (len > EPUB_TITLE_CAP) len = EPUB_TITLE_CAP;
+    uint16_t n = (uint16_t)len;
+    return fwrite(&n, sizeof(n), 1, cache) == 1 &&
+           (len == 0 || fwrite(text, 1, len, cache) == len);
+}
+
+static bool cache_read_text(book_epub_t* book, FILE* cache, const char** out) {
+    uint16_t n = 0;
+    if (fread(&n, sizeof(n), 1, cache) != 1 || n > EPUB_TITLE_CAP) return false;
+    char buf[EPUB_TITLE_CAP+1];
+    if (n != 0 && fread(buf, 1, n, cache) != n) return false;
+    buf[n] = 0;
+    *out = text_blocks_intern(&book->text_blocks,&book->text_last,buf,n);
+    return *out != NULL;
+}
+
+// 磁盘只存固定宽度元数据，不存指针、bool对象表示或宿主结构体布局。/ Persist fixed-width metadata, never pointers, bool representations or host struct layouts.
+typedef struct {int32_t zip_index;uint32_t offset;uint8_t flags,reserved[3];} cache_chapter_t;
+typedef struct {uint32_t source_offset;uint16_t chapter;uint8_t flags,reserved;} cache_nav_t;
 static bool epub_cache_load(const char* source, book_epub_t* book) {
     char path[112]; book_index_cache_header_t key;
     if (!book_index_cache_prepare(source, "epub", EPUB_CACHE_VERSION, path, sizeof(path), &key)) return false;
@@ -109,16 +199,37 @@ static bool epub_cache_load(const char* source, book_epub_t* book) {
     bool ok = fread(&payload, 1, sizeof(payload), cache) == sizeof(payload) &&
         payload.count > 0 && payload.count <= EPUB_CHAPTER_MAX &&
         payload.authored_count <= EPUB_NAV_MAX && payload.body_scanned <= 1;
+    // 结构体里的标题现在是指针，不能整块落盘：先读元数据，再按同样的顺序把字符串接回池里。
+    // The entry's title is a pointer now and cannot be dumped as a block: read the metadata, then
+    // rebind each string into the pool in the same order.
     if (ok) {
         book->chapters = psram(payload.count * sizeof(*book->chapters));
-        ok = book->chapters &&
-             fread(book->chapters, sizeof(*book->chapters), payload.count, cache) == payload.count;
+        ok = book->chapters != NULL;
         if (ok) book->chapter_capacity = payload.count;
+    }
+    for (size_t i = 0; ok && i < payload.count; ++i) {
+        cache_chapter_t entry;
+        ok=fread(&entry,sizeof(entry),1,cache)==1;
+        if(!ok)break;
+        if(entry.flags>15){ok=false;break;}
+        book->chapters[i]=(chapter_t){.zip_index=entry.zip_index,.offset=entry.offset,
+            .titled=(entry.flags&1)!=0,.nav_titled=(entry.flags&2)!=0,
+            .heading_checked=(entry.flags&4)!=0,.toc_visible=(entry.flags&8)!=0};
+        ok = cache_read_text(book, cache, &book->chapters[i].title);
     }
     if (ok && payload.authored_count) {
         book->navigation = psram(payload.authored_count * sizeof(*book->navigation));
-        ok = book->navigation &&
-             fread(book->navigation, sizeof(*book->navigation), payload.authored_count, cache) == payload.authored_count;
+        ok = book->navigation != NULL;
+    }
+    for (size_t i = 0; ok && i < payload.authored_count; ++i) {
+        cache_nav_t entry;
+        ok=fread(&entry,sizeof(entry),1,cache)==1;
+        if(!ok)break;
+        if(entry.flags>3){ok=false;break;}
+        book->navigation[i]=(nav_entry_t){.chapter=entry.chapter,.source_offset=entry.source_offset,
+            .valid=(entry.flags&1)!=0,.visible=(entry.flags&2)!=0};
+        ok = cache_read_text(book, cache, &book->navigation[i].title) &&
+             cache_read_text(book, cache, &book->navigation[i].anchor);
     }
     if (ok) ok = fgetc(cache) == EOF;
     fclose(cache);
@@ -127,7 +238,7 @@ static bool epub_cache_load(const char* source, book_epub_t* book) {
         chapter_t* chapter = &book->chapters[i];
         ok = chapter->zip_index >= 0 && zip_entry_name(book->zip, chapter->zip_index) &&
             chapter->offset >= previous && chapter->offset <= payload.total &&
-            memchr(chapter->title, 0, sizeof(chapter->title)) != NULL;
+            chapter->title != NULL;
         previous = chapter->offset;
     }
     for (size_t i = 0; ok && i < payload.authored_count; ++i) {
@@ -135,14 +246,14 @@ static bool epub_cache_load(const char* source, book_epub_t* book) {
         ok = entry->chapter < payload.count &&
              (entry->source_offset == UINT32_MAX ||
               entry->source_offset < zip_entry_size(book->zip, book->chapters[entry->chapter].zip_index)) &&
-             memchr(entry->title, 0, sizeof(entry->title)) != NULL &&
-             memchr(entry->anchor, 0, sizeof(entry->anchor)) != NULL;
+             entry->title != NULL && entry->anchor != NULL;
     }
     if (!ok) {
         // 损坏或写入中断的索引必须释放两张表；随后才重建正文目录。
         // Release both partially loaded tables before rebuilding a damaged index.
         free(book->navigation); book->navigation = NULL; book->navigation_capacity = 0;
         free(book->chapters); book->chapters = NULL; book->chapter_capacity = 0;
+        text_pool_free(book);
         return false;
     }
     book->count = payload.count; book->total = payload.total; book->authored_count = payload.authored_count;
@@ -159,10 +270,22 @@ static void epub_cache_save(const char* source, const book_epub_t* book) {
     epub_cache_payload_t payload = {.count = (uint32_t)book->count, .total = book->total,
                                     .authored_count = (uint32_t)book->authored_count,
                                     .body_scanned = book->body_scanned ? 1 : 0};
-    bool ok = fwrite(&payload, 1, sizeof(payload), cache) == sizeof(payload) &&
-        fwrite(book->chapters, sizeof(book->chapters[0]), book->count, cache) == book->count &&
-        (!book->authored_count ||
-         fwrite(book->navigation, sizeof(*book->navigation), book->authored_count, cache) == book->authored_count);
+    bool ok = fwrite(&payload, 1, sizeof(payload), cache) == sizeof(payload);
+    for (size_t i = 0; ok && i < book->count; ++i) {
+        const chapter_t *c=&book->chapters[i];
+        cache_chapter_t entry={.zip_index=c->zip_index,.offset=c->offset,
+            .flags=(c->titled?1:0)|(c->nav_titled?2:0)|(c->heading_checked?4:0)|(c->toc_visible?8:0)};
+        ok = fwrite(&entry, sizeof(entry), 1, cache) == 1 &&
+             cache_write_text(cache, book->chapters[i].title);
+    }
+    for (size_t i = 0; ok && i < book->authored_count; ++i) {
+        const nav_entry_t *n=&book->navigation[i];
+        cache_nav_t entry={.chapter=n->chapter,.source_offset=n->source_offset,
+            .flags=(n->valid?1:0)|(n->visible?2:0)};
+        ok = fwrite(&entry, sizeof(entry), 1, cache) == 1 &&
+             cache_write_text(cache, book->navigation[i].title) &&
+             cache_write_text(cache, book->navigation[i].anchor);
+    }
     (void)book_index_cache_finish_write(cache, temp, path, ok);
 }
 
@@ -536,7 +659,9 @@ static esp_err_t package_parse(book_epub_t *book, const char *opf, char ncx[EPUB
             size_t bytes = zip_entry_size(book->zip, entry);
             if (bytes > EPUB_ENTRY_MAX || bytes > UINT32_MAX - book->total) { err = ESP_ERR_INVALID_SIZE; break; }
             chapter_t *chapter = &book->chapters[book->count]; chapter->zip_index = entry; chapter->offset = book->total;
-            snprintf(chapter->title, sizeof(chapter->title), "第 %u 节", (unsigned)book->count + 1);
+            char fallback[EPUB_TITLE_CAP];
+            snprintf(fallback, sizeof(fallback), "第 %u 节", (unsigned)book->count + 1);
+            chapter->title = text_intern_cap(book, fallback, sizeof(fallback));
             book->total += (uint32_t)bytes; ++book->count;
         }
         if (xml.failed || !book->count) err = ESP_ERR_INVALID_ARG;
@@ -558,24 +683,31 @@ static void assign_title(book_epub_t *book, const int16_t *chapter_by_zip,
         (chapter_by_zip[index] >= 0 ? (size_t)chapter_by_zip[index] : book->count) : 0;
     for (size_t i = first; i < book->count; ++i) if (book->chapters[i].zip_index == index) {
         nav_entry_t *entry = &book->navigation[slot];
+        // href 不带 # 时锚点不会被写；指针字段必须先清空，否则留下的是野指针。
+        // An href without a # leaves the anchor unwritten; a pointer field has to start null or
+        // it stays wild.
+        entry->title = NULL;
+        entry->anchor = "";
         const char *fragment = strchr(href, '#');
         entry->chapter = (uint16_t)i;
-        strcpy(entry->title, title);
+        entry->title = text_intern_cap(book, title, EPUB_TITLE_CAP);
         if (fragment && fragment[1]) {
+            char anchor[EPUB_ID_CAP];
             size_t used = 0;
-            for (const char *p = fragment + 1; *p && used + 1 < sizeof(entry->anchor); ++p) {
+            for (const char *p = fragment + 1; *p && used + 1 < sizeof(anchor); ++p) {
                 if (*p == '%' && p[1] && p[2]) {
                     int a = hex(p[1]), b = hex(p[2]);
-                    if (a >= 0 && b >= 0) { entry->anchor[used++] = (char)((a << 4) | b); p += 2; continue; }
+                    if (a >= 0 && b >= 0) { anchor[used++] = (char)((a << 4) | b); p += 2; continue; }
                 }
-                entry->anchor[used++] = *p;
+                anchor[used++] = *p;
             }
-            entry->anchor[used] = 0;
+            anchor[used] = 0;
+            entry->anchor = text_intern_cap(book, anchor, sizeof(anchor));
         }
         entry->valid = true;
         if (!book->chapters[i].titled ||
             (front_matter_title(book->chapters[i].title) && !front_matter_title(title))) {
-            strcpy(book->chapters[i].title, title);
+            book->chapters[i].title = text_intern_cap(book, title, EPUB_TITLE_CAP);
             book->chapters[i].titled = true;
             book->chapters[i].nav_titled = true;
         }
@@ -609,7 +741,13 @@ static esp_err_t navigation_parse(book_epub_t *book, const char *path, bool ncx)
             if (node.kind == XML_OPEN && local_name(node.name, "navPoint") && ++expected > EPUB_NAV_MAX) break;
         if (!scan.failed && expected && expected <= EPUB_NAV_MAX) {
             book->navigation = psram(expected * sizeof(*book->navigation));
-            if (book->navigation) book->navigation_capacity = expected;
+            if (book->navigation) {
+                book->navigation_capacity = expected;
+                // 标题和锚点现在是指针：没被显式写过的条目必须是空指针而不是野指针。
+                // Titles and anchors are pointers now, so entries that never get written must be
+                // null rather than wild.
+                memset(book->navigation, 0, expected * sizeof(*book->navigation));
+            }
         }
     }
     bool explicit_toc = false;
@@ -683,7 +821,9 @@ static esp_err_t navigation_parse(book_epub_t *book, const char *path, bool ncx)
         for (size_t i = 0; i < book->count; ++i) if (!(previously_titled[i / 8] & (1u << (i % 8)))) {
             book->chapters[i].titled = false;
             book->chapters[i].nav_titled = false;
-            snprintf(book->chapters[i].title, sizeof(book->chapters[i].title), "第 %u 节", (unsigned)i + 1);
+            char fallback[EPUB_TITLE_CAP];
+            snprintf(fallback, sizeof(fallback), "第 %u 节", (unsigned)i + 1);
+            book->chapters[i].title = text_intern_cap(book, fallback, sizeof(fallback));
         }
     }
     if (err == ESP_OK) {
@@ -813,9 +953,18 @@ esp_err_t book_epub_open(const char *path, book_epub_t **out) {
                 nav_book->zip = book->zip;
                 nav_book->chapters = book->chapters;
                 nav_book->count = book->count;
+                // 标题要写进主书的池：nav_book 合并之后就被丢掉，它自己池里的字符串会跟着悬空。
+                // Titles go into the main book's pool: nav_book is dropped right after the merge
+                // and strings in a pool of its own would dangle with it.
+                nav_book->text_blocks = book->text_blocks;
+                nav_book->text_last = book->text_last;
                 esp_err_t nav_err = navigation_parse(nav_book, nav, false);
                 if (nav_err == ESP_OK && nav_book->authored_count)
                     navigation_merge(book, nav_book);
+                // 解析可能推进了池的尾块，两个指针都要还回主书。
+                // Parsing may have advanced the pool's tail, so both pointers go back.
+                book->text_blocks = nav_book->text_blocks;
+                book->text_last = nav_book->text_last;
                 free(nav_book->navigation);
                 free(nav_book);
             }
@@ -837,7 +986,7 @@ esp_err_t book_epub_open(const char *path, book_epub_t **out) {
 void book_epub_close(book_epub_t *book) {
     if (!book) return;
     if (book->headings_dirty && book->source_path[0]) epub_cache_save(book->source_path, book);
-    zip_close(book->zip); free(book->visible_index); free(book->navigation); free(book->chapters); free(book);
+    zip_close(book->zip); text_pool_free(book); free(book->visible_index); free(book->navigation); free(book->chapters); free(book);
 }
 size_t book_epub_chapter_count(const book_epub_t *book) { return book ? book->count : 0; }
 // 目录缺项时只解析当前可见章节的标题，不在开书时解压所有章节。
@@ -867,7 +1016,7 @@ static void chapter_heading(book_epub_t *book, size_t i) {
                 if (end - tag >= 4 && tag[1] == '/' && (tag[2] == 'h' || tag[2] == 'H') && tag[3] == open[2]) {
                     size_t n = strlen(title);
                     while (n && title[n - 1] == ' ') title[--n] = 0;
-                    if (n) { strcpy(chapter->title, title); chapter->titled = true; book->headings_dirty = true; }
+                    if (n) { chapter->title = text_intern_cap(book, title, EPUB_TITLE_CAP); chapter->titled = true; book->headings_dirty = true; }
                     break;
                 }
                 cursor = memchr(tag, '>', (size_t)(end - tag));
@@ -882,6 +1031,9 @@ static void chapter_heading(book_epub_t *book, size_t i) {
 }
 
 static bool front_matter_title(const char *title) {
+    // 标题字段是指针：目录里没被写过的条目留的是空指针，这里先兜住。
+    // The title field is a pointer now, and entries the parser never touched keep a null one.
+    if (title == NULL) return false;
     static const char *const chinese[] = {
         "封面", "扉页", "书名页", "版权", "出版信息", "出版社", "作者信息",
         "作者简介", "关于作者", "图书信息", "书籍信息", "制作信息", NULL
@@ -920,6 +1072,10 @@ static bool numbered_chapter_title(const char *title) {
 typedef struct {
     nav_entry_t *items;
     size_t count, capacity;
+    // 正文标题扫描是临时的，它的字符串用一块自己的池，扫完随表一起释放。
+    // The body-heading scan is temporary, so its strings get a pool of their own that is
+    // released with the table.
+    text_block_t *text_blocks, *text_last;
 } body_headings_t;
 
 static bool chinese_number(uint32_t cp) {
@@ -987,7 +1143,10 @@ static bool body_heading_add(body_headings_t *found, size_t chapter, size_t sour
     entry->chapter = (uint16_t)chapter;
     entry->source_offset = (uint32_t)source_offset;
     entry->valid = true;
-    strcpy(entry->title, title);
+    entry->anchor = "";
+    entry->title = text_blocks_intern(&found->text_blocks, &found->text_last,
+                                      title, strlen(title));
+    if (entry->title == NULL) { --found->count; return false; }
     return true;
 }
 
@@ -1048,12 +1207,16 @@ static void body_headings_prepare(book_epub_t *book) {
     // With a large authored TOC, do not inflate thousands of chapters before the first page.
     if (book->count > 256 && book->authored_count) return;
     body_headings_t found = {0};
-    if (!body_headings_scan(book, &found)) { free(found.items); return; }
+    if (!body_headings_scan(book, &found)) {
+        free(found.items);
+        text_blocks_free(&found.text_blocks, &found.text_last);
+        return;
+    }
     for (size_t i = 0; i < found.count; ++i) {
         nav_entry_t *entry = &found.items[i];
         chapter_t *chapter = &book->chapters[entry->chapter];
         if (i && found.items[i - 1].chapter == entry->chapter) continue;
-        strcpy(chapter->title, entry->title);
+        chapter->title = text_intern_cap(book, entry->title, EPUB_TITLE_CAP);
         chapter->titled = true;
         chapter->heading_checked = true;
     }
@@ -1079,6 +1242,16 @@ static void body_headings_prepare(book_epub_t *book) {
         book->authored_count = found.count;
         book->navigation_capacity = found.capacity;
         found.items = NULL;
+        // 池跟着条目一起交给主书：条目的标题指着这些块，池留在这里被释放就全悬空了。
+        // The pool goes with the entries: their titles point into these blocks, and freeing the
+        // pool here would dangle every one of them.
+        if (found.text_blocks != NULL) {
+            if (book->text_last != NULL) book->text_last->next = found.text_blocks;
+            else book->text_blocks = found.text_blocks;
+            book->text_last = found.text_last;
+            found.text_blocks = NULL;
+            found.text_last = NULL;
+        }
     } else if (book->authored_count && found.count) {
         unsigned char used[EPUB_NAV_MAX / 8] = {0};
         for (size_t j = 0; j < found.count; ++j) {
@@ -1087,9 +1260,9 @@ static void body_headings_prepare(book_epub_t *book) {
                 if (entry->chapter != found.items[j].chapter ||
                     front_matter_title(entry->title) || used[i / 8] & (1u << (i % 8))) continue;
                 if (strcmp(entry->title, found.items[j].title)) {
-                    strcpy(entry->title, found.items[j].title);
+                    entry->title = text_intern_cap(book, found.items[j].title, EPUB_TITLE_CAP);
                     entry->source_offset = found.items[j].source_offset;
-                    entry->anchor[0] = 0;
+                    entry->anchor = text_intern_cap(book, "", EPUB_ID_CAP);
                 }
                 used[i / 8] |= (unsigned char)(1u << (i % 8));
                 break;
@@ -1097,6 +1270,7 @@ static void body_headings_prepare(book_epub_t *book) {
         }
     }
     free(found.items);
+    text_blocks_free(&found.text_blocks, &found.text_last);
     book->body_scanned = true;
     if (book->source_path[0]) epub_cache_save(book->source_path, book);
 }

@@ -86,20 +86,34 @@ static bool card_mounted = true;
 static bool commit_fails;
 static int commit_count;
 static uint8_t test_loaded_system_size, persisted_book_px;
+static reader_input_preferences_t input_saved,input_staged;
+static bool input_present,input_pending;
 esp_err_t read_pico_sd_get_info(read_pico_sd_info_t *info) { info->mounted = card_mounted; return ESP_OK; }
 esp_err_t nvs_flash_init(void) { return ESP_OK; }
 esp_err_t nvs_flash_erase(void) { return ESP_OK; }
 esp_err_t nvs_open(const char *ns, int mode, nvs_handle_t *h) { (void)ns; (void)mode; *h = 1; return ESP_OK; }
-void nvs_close(nvs_handle_t h) { (void)h; }
+void nvs_close(nvs_handle_t h) { (void)h; input_pending=false; }
 esp_err_t nvs_get_u8(nvs_handle_t h, const char *key, uint8_t *value) { (void)h; if (!strcmp(key, NVS_KEY_SYS_SIZE) && test_loaded_system_size) { *value = test_loaded_system_size; return ESP_OK; } return ESP_FAIL; }
 esp_err_t nvs_set_u8(nvs_handle_t h, const char *key, uint8_t value) { (void)h; if(!strcmp(key,NVS_KEY_BOOK_PX))persisted_book_px=value; return ESP_OK; }
 esp_err_t nvs_get_str(nvs_handle_t h, const char *key, char *value, size_t *size) { (void)h; (void)key; (void)value; (void)size; return ESP_FAIL; }
 esp_err_t nvs_set_str(nvs_handle_t h, const char *key, const char *value) { (void)h; (void)key; (void)value; return ESP_OK; }
 esp_err_t nvs_erase_key(nvs_handle_t h, const char *key) { (void)h; (void)key; return ESP_OK; }
-esp_err_t nvs_commit(nvs_handle_t h) { (void)h; ++commit_count; return commit_fails ? ESP_FAIL : ESP_OK; }
+esp_err_t nvs_commit(nvs_handle_t h) { (void)h; ++commit_count;if(commit_fails)return ESP_FAIL;if(input_pending){input_saved=input_staged;input_present=true;}return ESP_OK; }
+esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *out,size_t *n){(void)h;assert(!strcmp(key,"preferences"));if(!input_present)return ESP_ERR_NVS_NOT_FOUND;assert(*n>=sizeof(input_saved));memcpy(out,&input_saved,sizeof(input_saved));*n=sizeof(input_saved);return ESP_OK;}
+esp_err_t nvs_set_blob(nvs_handle_t h,const char *key,const void *in,size_t n){(void)h;assert(!strcmp(key,"preferences")&&n==sizeof(input_staged));memcpy(&input_staged,in,n);input_pending=true;return ESP_OK;}
 
 int main(void) {
-    assert(app_settings_system_contrast() == 100);
+    // 日期格式、UTC+8跨日、隐藏日期保留格式。/ Numeric formats, UTC+8 rollover and retaining format while hidden.
+    char clock[64];const char *expected[]={"2024-01-02 04:00","2024/01/02 04:00","2024.01.02 04:00","01-02 04:00","01/02 04:00"};
+    for(int i=0;i<APP_STATUS_DATE_FORMAT_COUNT;++i){
+        app_settings_set_status_date_format((app_status_date_format_t)i);
+        app_settings_format_status_clock(1704139200,clock,sizeof(clock));assert(!strcmp(clock,expected[i]));
+    }
+    app_settings_set_status_show_date(false);app_settings_format_status_clock(1704139200,clock,sizeof(clock));assert(!strcmp(clock,"04:00"));
+    assert(app_settings_status_date_format()==APP_STATUS_DATE_MONTH_DAY_SLASH);
+    app_settings_format_status_clock(0,clock,sizeof(clock));assert(!strcmp(clock,"--:--"));
+    s_status_date=0;commit_count=0;
+
     assert(app_settings_book_line_spacing() == 130); /* New installations start at the middle slider stop. */
     (void)mkdir(APP_SETTINGS_BACKUP_ROOT, 0700);
     (void)remove(BACKUP_FILE);
@@ -110,6 +124,7 @@ int main(void) {
     (void)remove(RESTORE_PREVIOUS);
     (void)remove(RESTORE_DONE);
     card_mounted = false;
+    s_status_date=0x80|APP_STATUS_DATE_DOT;s_idle_sleep_minutes=30;
     assert(app_settings_backup_save() == ESP_ERR_INVALID_STATE);
     card_mounted = true;
     s_system_size = 200;
@@ -121,6 +136,7 @@ int main(void) {
     s_reader_turn_effect = 1;
     s_reader_power_turn = true;
     s_reader_immersive = true;
+    s_reader_fullscreen=true;s_book_para=37;
     s_staged_shutdown = true;
     s_home_full_refresh = true;
     s_reader_hold_refresh = true;
@@ -205,6 +221,7 @@ int main(void) {
     s_reader_immersive = false;
     s_staged_shutdown = false;
     s_home_full_refresh = false;
+    s_reader_fullscreen=false;s_book_para=0;
     s_reader_hold_refresh = false;
     app_settings_set_reader_vertical_turn(false);
     strlcpy(s_device_name, "Pico", sizeof(s_device_name));
@@ -212,10 +229,13 @@ int main(void) {
     s_avatar[0] = 0;
     s_lock_style = 0;
     s_wallpaper[0] = 0;
+    s_status_date=APP_STATUS_DATE_ISO;s_idle_sleep_minutes=0;
     assert(app_settings_backup_restore() == ESP_OK);
     assert(history_restores == 1);
+    assert(!app_settings_status_show_date()&&app_settings_status_date_format()==APP_STATUS_DATE_DOT);
+    assert(app_settings_idle_sleep_minutes()==30);
     assert(cloud_restores==1&&!strcmp(saved_cloud.folder,"PicoBox")&&!strcmp(saved_cloud.password,"test-only-secret"));
-    assert(app_settings_system_font_size() == 200);
+    assert(app_settings_system_font_size() == 160);
     assert(wifi_imports == 1 && saved_wifi.configured &&
            !strcmp(saved_wifi.ssid, "Home_2.4G") &&
            !strcmp(saved_wifi.password, "password123"));
@@ -223,14 +243,15 @@ int main(void) {
            s_book_rule_offset == 7 && s_reader_full_pages == 5);
     assert(s_reader_turn_effect == 1 && s_reader_power_turn && s_reader_immersive);
     assert(s_staged_shutdown);
+    assert(s_reader_fullscreen&&s_book_para==37);
     assert(s_reader_hold_refresh);
     assert(app_settings_reader_vertical_turn());
     assert(s_home_full_refresh && !strcmp(s_device_name, "Kiiko Pico") &&
            !strcmp(s_status_signature, "今天也要读书"));
     assert(!s_avatar[0]); /* Missing avatar falls back to the default mark. */
     assert(!s_font[0]); /* Missing external font falls back to built-in. */
-    assert(s_lock_style == 0 && !s_wallpaper[0]); /* Missing wallpaper uses ticket. */
-    assert(commit_count == 3); /* Two mode changes and one restore commit. */
+    assert(s_lock_style == 1 && !s_wallpaper[0]); /* Missing wallpaper uses bundled wallpaper. */
+    assert(commit_count == 4); /* Two mode changes, settings restore and reader preferences. */
     app_settings_set_reader_full_pages(30);
     assert(s_reader_full_pages == 30);
     app_settings_set_reader_full_pages(0);
@@ -349,15 +370,15 @@ int main(void) {
     assert(app_settings_backup_restore() == ESP_ERR_NOT_FOUND);
     for (int percent = 100; percent <= 200; percent += 10) {
         app_settings_set_system_font_size((uint8_t)percent);
-        assert(app_settings_system_font_size() == percent);
+        assert(app_settings_system_font_size() == system_size_preset((uint8_t)percent));
     }
     app_settings_set_system_font_size(210);
     app_settings_set_system_font_size(195);
-    assert(app_settings_system_font_size() == 200);
+    assert(app_settings_system_font_size() == 160);
     test_loaded_system_size = 180; s_system_size = 120;
-    app_settings_init(); assert(app_settings_system_font_size() == 180);
+    app_settings_init(); assert(app_settings_system_font_size() == 160);
     test_loaded_system_size = 200; s_system_size = 120;
-    app_settings_init(); assert(app_settings_system_font_size() == 200);
+    app_settings_init(); assert(app_settings_system_font_size() == 160);
     // 普通写入失败应恢复整组旧资料，不覆盖用户备份。/ Ordinary write failures restore all old state without replacing the user backup.
     s_book_px=70;history_value=70;strcpy(saved_wifi.ssid,"BackupWifi");saved_wifi.configured=1;strcpy(saved_wifi.password,"test-pass");
     strcpy(saved_cloud.folder,"BackupCloud");assert(app_settings_backup_save()==ESP_OK);
@@ -378,6 +399,13 @@ int main(void) {
     assert(app_settings_backup_restore()==ESP_OK&&persisted_book_px==70&&history_value==70&&
            !strcmp(saved_wifi.ssid,"BackupWifi")&&!strcmp(saved_cloud.folder,"BackupCloud"));
     assert(access(RESTORE_BEFORE,F_OK)!=0);
-    puts("settings backup host test passed (including 200% size persistence and restore)");
+    assert(reader_input_assign(READER_SWIPE_RIGHT,READER_ACTION_TOC)==ESP_OK);
+    app_settings_set_book_margin(8);
+    assert(app_settings_backup_save()==ESP_OK);
+    assert(reader_input_assign(READER_SWIPE_RIGHT,READER_ACTION_BOOKMARKS)==ESP_OK);
+    app_settings_set_book_margin(60);
+    assert(app_settings_backup_restore()==ESP_OK);
+    assert(reader_input_action(READER_SWIPE_RIGHT)==READER_ACTION_TOC&&app_settings_book_margin()==8);
+    puts("settings backup host test passed (including numeric status dates, display preferences, four size presets and legacy restore)");
     return 0;
 }

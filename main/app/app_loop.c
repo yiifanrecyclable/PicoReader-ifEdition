@@ -28,6 +28,8 @@
 #include "app_loop.h"
 
 #include <string.h>
+#include <time.h>
+#include "battery_history.h"
 
 #include "app_registry.h"
 #include "app_content_open.h"
@@ -238,6 +240,8 @@ static bool poll_media(app_ctx_t* ctx, const app_desc_t* current,
         return false;
     }
     if (err == ESP_ERR_NOT_FINISHED) return false;
+    // 可信挂载不因一次容量/检测通信错误而失效。/ A trusted mount survives transient detection/space faults.
+    if(err!=ESP_OK&&info.mounted)return false;
     bool ready = err == ESP_OK && info.mounted;
     bool lost = *mounted && !ready;
     bool gained = !*mounted && ready;
@@ -248,7 +252,8 @@ static bool poll_media(app_ctx_t* ctx, const app_desc_t* current,
     *invalidated = true;
     s_media_recovery_requested = false;
     if (current->on_media_lost) current->on_media_lost(ctx);
-    if (ttf_font_ready() && !ttf_font_is_builtin()) ttf_font_open_builtin();
+    ttf_font_unload();
+    ttf_font_open_builtin();
     ui_text_set_system_font(false);
     return true;
 }
@@ -302,6 +307,8 @@ void app_loop_run(const app_loop_config_t* config) {
     int64_t last_font_retry_ms = 0;
     int64_t last_media_poll_ms = 0;
     int64_t last_network_poll_ms = 0;
+    int64_t last_activity_ms=esp_timer_get_time()/1000,last_idle_poll_ms=0;
+    bool idle_suspended=false;
     read_pico_sd_info_t initial_media = {0};
     (void)read_pico_sd_get_info(&initial_media);
     bool media_mounted = initial_media.mounted || (ttf_font_ready() && !ttf_font_is_builtin());
@@ -331,6 +338,7 @@ void app_loop_run(const app_loop_config_t* config) {
         const bool released = !touch.touched && was_touched;
         debounce_touch(&latest, &touch, released);
         ctx.now_ms = esp_timer_get_time() / 1000;
+        if(err==ESP_OK&&(touch.touched||released))last_activity_ms=ctx.now_ms;
         if (ctx.now_ms - last_network_poll_ms >= 500) {
             last_network_poll_ms = ctx.now_ms;
             read_pico_transfer_service_poll();
@@ -383,6 +391,7 @@ void app_loop_run(const app_loop_config_t* config) {
                         enter_lock_and_sleep(ctx.hl, &s_lock_ignore_until_ms, ctx.acc,
                                              current == &app_book && app_book_reader_body_visible());
                         ctx.now_ms = esp_timer_get_time() / 1000;
+                        last_activity_ms=ctx.now_ms;
                         poll_media(&ctx, current, &media_mounted, &media_invalidated);
                         last_media_poll_ms = ctx.now_ms;
                         ctx.pressed = false;
@@ -398,9 +407,9 @@ void app_loop_run(const app_loop_config_t* config) {
 
         if (err != ESP_OK) {
             held_key = -1;
+            ctx.consumed = true;
             cancel_gesture(&ctx, current, &gesture);
             ui_gesture_reset(&power_gesture);
-            ctx.consumed = true;
             if (menu_pressed >= 0) menu_feedback(&ctx, current, menu_leaf, menu_pressed, false, &feedback);
             menu_pressed = UI_MENU_HIT_NONE;
         }
@@ -503,7 +512,16 @@ void app_loop_run(const app_loop_config_t* config) {
             && ctx.now_ms - last_lock_poll_ms >= APP_LOCK_POLL_MS) {
             last_lock_poll_ms = ctx.now_ms;
             read_pico_pmu_key_action_t key_action = read_pico_pmu_take_key_action();
+            const pmu_snapshot_t *battery = read_pico_pmu_get();
+            time_t battery_time = time(NULL);
+            if (battery_time < 1704067200 && battery && battery->time_synced) battery_time = battery->unix_sec;
+            unsigned battery_mv = battery ? (battery->quick_ok ? battery->qb_mv : battery->battery_mv) : 0;
+            if (battery_time >= 1704067200 && (uint64_t)battery_time <= UINT32_MAX)
+                battery_history_observe((uint32_t)battery_time, pmu_battery_percent(battery), battery_mv,
+                                    pmu_battery_charging(battery), media_mounted);
+
             if (key_action != READ_PICO_PMU_KEY_NONE) {
+                last_activity_ms=ctx.now_ms;
                 if (ctx.now_ms < s_lock_ignore_until_ms) {
                     ESP_LOGI(TAG, "ignore boot power-key action %d", (int)key_action);
                 } else if (key_action == READ_PICO_PMU_KEY_LONG) {
@@ -518,6 +536,7 @@ void app_loop_run(const app_loop_config_t* config) {
                         if (current->on_before_lock) current->on_before_lock(&ctx);
                         enter_lock_and_sleep(ctx.hl, &s_lock_ignore_until_ms, ctx.acc, true);
                         ctx.now_ms = esp_timer_get_time() / 1000;
+                        last_activity_ms=ctx.now_ms;
                         poll_media(&ctx, current, &media_mounted, &media_invalidated);
                         last_media_poll_ms = ctx.now_ms;
                         ctx.consumed = true;
@@ -547,6 +566,7 @@ void app_loop_run(const app_loop_config_t* config) {
                         enter_lock_and_sleep(ctx.hl, &s_lock_ignore_until_ms, ctx.acc,
                                              !menu_open && current == &app_book && app_book_reader_body_visible());
                         ctx.now_ms = esp_timer_get_time() / 1000;
+                        last_activity_ms=ctx.now_ms;
                         poll_media(&ctx, current, &media_mounted, &media_invalidated);
                         last_media_poll_ms = ctx.now_ms;
                         ctx.consumed = true;
@@ -625,6 +645,7 @@ void app_loop_run(const app_loop_config_t* config) {
             ctx.request_menu = false;
         }
         if (!power_dialog_open && (ctx.request_return || ctx.request_app || ctx.request_menu)) {
+            last_activity_ms=ctx.now_ms;
             held_key = -1;
             const app_desc_t* next = ctx.request_app;
             const bool go_back = ctx.request_return;
@@ -663,6 +684,28 @@ void app_loop_run(const app_loop_config_t* config) {
                 menu_open = true;
                 menu_leaf = ui_menu_leaf_for_app(current);
                 present_menu(&ctx, current, menu_leaf, &feedback);
+            }
+        }
+        // 空闲倒计时只由真实输入重置，后台页面刷新不延长阅读亮屏。/ Only input resets idle time; periodic redraws do not keep the reader awake.
+        if(ctx.now_ms-last_idle_poll_ms>=1000){
+            last_idle_poll_ms=ctx.now_ms;
+            unsigned minutes=app_settings_idle_sleep_minutes();
+            bool blocked=power_dialog_open||current->holds_pmu||usb_storage_active()||err!=ESP_OK;
+            if(minutes&&current->prevent_idle_sleep)blocked=blocked||current->prevent_idle_sleep(&ctx);
+            if(!minutes||blocked){last_activity_ms=ctx.now_ms;idle_suspended=true;}
+            else if(idle_suspended){last_activity_ms=ctx.now_ms;idle_suspended=false;}
+            else if(!touch.touched&&ctx.now_ms-last_activity_ms>=(int64_t)minutes*60000){
+                held_key=-1;cancel_gesture(&ctx,current,&gesture);
+                if(menu_pressed>=0)menu_feedback(&ctx,current,menu_leaf,menu_pressed,false,&feedback);
+                menu_pressed=UI_MENU_HIT_NONE;
+                if(current->on_before_lock)current->on_before_lock(&ctx);
+                extern const app_desc_t app_book;
+                enter_lock_and_sleep(ctx.hl,&s_lock_ignore_until_ms,ctx.acc,!menu_open&&current==&app_book&&app_book_reader_body_visible());
+                ctx.now_ms=esp_timer_get_time()/1000;last_activity_ms=last_idle_poll_ms=ctx.now_ms;
+                poll_media(&ctx,current,&media_mounted,&media_invalidated);last_media_poll_ms=ctx.now_ms;
+                ctx.consumed=true;ctx.pressed=ctx.released=false;was_touched=false;
+                if(menu_open)present_menu(&ctx,current,menu_leaf,&feedback);
+                else app_present(&ctx,current,APP_REDRAW_PAGE);
             }
         }
         vTaskDelay(pdMS_TO_TICKS(LOOP_TICK_MS));

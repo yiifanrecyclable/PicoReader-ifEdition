@@ -1,6 +1,6 @@
 # if-ink OS 在线升级 / Online updates
 
-稳定通道：`ota/stable.json`。设备只在用户点击“在线升级”时检查，确认后才安装。当前 `available: false`，因为 if-ink OS v0.1.0 尚未正式发布；已发布的旧 IF 版本和开发测试包不会自动进入此通道。
+稳定通道：`ota/stable.json`。设备只在用户点击“在线升级”时检查，确认后才安装。稳定通道当前发布 if-ink OS v0.1.1；旧 IF 版本和开发测试包不会自动成为稳定通道目标。
 
 Stable feed: `ota/stable.json`. Devices check on request and install after confirmation. It remains disabled until the first tested OS stable release; legacy IF releases and development builds are excluded.
 
@@ -14,8 +14,8 @@ Repository ID survives renames. The retained `Read_Pico_IF` image identity and t
 ## 发布稳定版 / Publishing stable releases
 
 1. 用户验收并授权发布后，再制作固件。版本使用 `0.1.0`、`0.1.1` 等稳定编号；`-test.N` 不入稳定通道。
-2. 在同一仓库创建对应稳定Release（例如 `v0.1.0`），提供对应源码、许可和应用`.bin`。在线升级不能使用合并USB镜像、ZIP或分区表。
-3. 获取该Release元数据（`gh api repositories/1412628734/releases/tags/v0.1.0`），保存到本地JSON。
+2. 在同一仓库创建对应稳定Release（例如 `v0.1.1`），提供对应源码、许可和应用`.bin`。在线升级不能使用合并USB镜像、ZIP或分区表。
+3. 获取该Release元数据（`gh api repositories/1412628734/releases/tags/v0.1.1`），保存到本地JSON。
 4. 将与Release相同的应用`.bin`提交到本站在线刷机目录（沿用现有webflash发布流程）；必须是同一份字节，工具自动生成不可变blob编号。运行 `python3 tools/prepare_online_update.py APP.bin --release-json RELEASE.json --asset-id ID --out ota/stable.json`。工具校验实际镜像、版本与GitHub资产SHA256，仅生成清单。
 5. 先确认同版首次安装/TF升级包及源码下载可用，再将新清单提交到main；这是向已安装设备开放更新的最后一步。撤回更新可将`available`恢复为false，已安装设备不会降级。
 

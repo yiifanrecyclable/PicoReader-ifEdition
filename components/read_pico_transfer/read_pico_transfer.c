@@ -633,6 +633,20 @@ esp_err_t read_pico_transfer_save_wifi(const char *ssid, const char *password) {
     clear_secret(&next, sizeof(next)); release_config(); return err;
 }
 
+esp_err_t read_pico_transfer_select_saved_wifi(const char *ssid){
+    if(!ssid||strnlen(ssid,33)>32)return ESP_ERR_INVALID_ARG;
+    if(s_wifi||s_http||s_netif)return ESP_ERR_INVALID_STATE;
+    if(!claim_config())return ESP_ERR_INVALID_STATE;
+    transfer_wifi_profiles_t p;esp_err_t err=load_profiles(&p);
+    if(err==ESP_OK){int i=profiles_find(&p,ssid);
+        if(i<0)err=ESP_ERR_NOT_FOUND;
+        else{transfer_credentials_t chosen=p.entries[i];err=store_credentials(&chosen);
+            if(err==ESP_OK)publish_credentials(&chosen);
+            clear_secret(&chosen,sizeof(chosen));}
+    }
+    clear_secret(&p,sizeof(p));release_config();return err;
+}
+
 esp_err_t read_pico_transfer_sync_time(uint32_t *utc_seconds) {
     if (!utc_seconds) return ESP_ERR_INVALID_ARG;
     *utc_seconds = 0;
@@ -858,11 +872,10 @@ esp_err_t read_pico_transfer_forget_wifi(void) {
     if (status.state == READ_PICO_TRANSFER_UPLOADING ||
         (status.state != READ_PICO_TRANSFER_STOPPED && status.mode == READ_PICO_TRANSFER_MODE_STA)) return ESP_ERR_INVALID_STATE;
     if (!claim_config()) return ESP_ERR_INVALID_STATE;
-    esp_err_t err = store_credentials(NULL);
-    if (err == ESP_OK) {
-        publish_credentials(NULL);
-        ESP_LOGI("transfer", "wifi saved configured=0");
-    }
+    transfer_wifi_profiles_t profiles;esp_err_t err=load_profiles(&profiles);
+    if(err==ESP_OK&&profiles.count){char name[33];memcpy(name,profiles.entries[0].ssid,sizeof(name));profiles_remove(&profiles,name);err=store_profiles(&profiles);}
+    if(err==ESP_OK)publish_credentials(profiles.count?&profiles.entries[0]:NULL);
+    clear_secret(&profiles,sizeof(profiles));
     release_config(); return err;
 }
 

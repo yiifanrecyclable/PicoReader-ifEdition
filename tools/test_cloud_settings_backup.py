@@ -32,7 +32,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='cloud-settings-test-')
         return json.loads(p.stdout)
     saved=render('t,340,602,340,602');assert 'cloud_restore' not in saved
     file=card/'Pico-settings.backup';raw=file.read_bytes()
-    assert raw[:8]==b'PICOSET8' and expected['password'].encode() in raw
+    assert raw[:8]==b'PICOSETB' and expected['password'].encode() in raw
     controller.configure({**expected,'password':'changed-test-only'})
     result=render('t,340,720,340,720;t,340,720,340,720')
     assert result['cloud_restore']==expected

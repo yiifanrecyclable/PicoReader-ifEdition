@@ -9,7 +9,8 @@
 #include <stdint.h>
 #include "epdiy.h"
 
-#define BOOK_TOC_ROWS 7
+#define BOOK_TOC_ROWS (book_toc_visible_rows())
+int book_toc_visible_rows(void);
 #define BOOK_TOC_BACK (-2)
 #define BOOK_TOC_PREV (-3)
 #define BOOK_TOC_NEXT (-4)
@@ -29,3 +30,7 @@ EpdRect book_toc_row_rect(int row);
 void book_toc_render(uint8_t *fb, const char *book_title, size_t chapters,
                      size_t current, int page, const char *message);
 void book_toc_render_jump(uint8_t *fb, size_t chapters, int percent);
+
+/// 仅更新目录百分比、轨道和目标信息，不改目录正文。/ Update only jump percentage, track and target details.
+void book_toc_render_jump_preview(uint8_t *fb,size_t chapters,int percent);
+EpdRect book_toc_jump_preview_area(void);

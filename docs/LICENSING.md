@@ -7,6 +7,12 @@ Added 2026-10-05: distribution guidance for the independent Pico reader; upstrea
 
 This independent firmware develops from the Pico Reader `0.3.3-rc58` source baseline. It must retain its own project identity and acknowledge its origin. This document describes distribution requirements, not a legal guarantee or a replacement for the applicable licenses.
 
+## v0.1.1 发行核查 / Release verification
+
+2026-10-16：本版提供对应应用源码、修改后的 epdiy、固定依赖、实际 `sdkconfig.release` 和 `BUILDING.md`。USB、TF、资源及许可包包含来源和适用许可；刷机页同时提供同版源码。源码 ZIP 的独立解压副本中对 epdiy 作接口兼容改动后，按公开配置完成 ESP-IDF 重新编译链接。发布应用、各包成员及网页清单的摘要均已核对；包中不含用户 TF 卡内容或凭据。下方早期未完成项目为历史基线核查记录，应结合当前版本材料阅读。
+
+This release includes the matching application/library source, pinned dependencies, actual configuration, build/relink instructions and license texts. An independently extracted source archive was rebuilt after a compatible epdiy modification. Image, package-member and web-manifest checksums were verified; user card content and credentials are excluded. Earlier outstanding items below document the initial baseline.
+
 ## 主体代码 / Application code
 
 [Apache-2.0 §2、§4、§6](https://www.apache.org/licenses/LICENSE-2.0)允许在满足条件时修改并发布源码或二进制。随分发物提供 [LICENSE](../LICENSE)，保留原版权、许可及适用署名；修改过的文件携带显著修改声明。Git 历史和版本日志可帮助追溯，但不能替代文件中的修改声明。原项目有适用 NOTICE 时保留其声明；[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)也随交付保存。可为新增内容补充真实作者声明，不能覆盖原作者。许可不授予以原作者商标为新项目背书的权利。

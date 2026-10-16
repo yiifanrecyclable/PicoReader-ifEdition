@@ -50,8 +50,7 @@ extern const uint8_t lock_4bpp_bin_start[] asm("_binary_lock_4bpp_bin_start");
 
 static bool draw_wallpaper(uint8_t *framebuffer) {
     const char *path = app_settings_wallpaper_path();
-    return app_settings_lock_style() == 1 &&
-        ui_wallpaper_draw(framebuffer, path, (EpdRect){0, 0, UI_LOCK_WIDTH, UI_LOCK_HEIGHT});
+    return ui_wallpaper_draw(framebuffer, path, (EpdRect){0, 0, UI_LOCK_WIDTH, UI_LOCK_HEIGHT});
 }
 
 static void lock_arm_ioe_wakeup(void) {
@@ -356,11 +355,10 @@ void enter_lock_and_sleep(
     epd_poweron();
     epd_clear();
     epd_hl_set_all_white(hl);
-    // 阅读票根独占锁屏画布：始终先画最近书籍封面，再叠票根；自定义壁纸只属于壁纸模式。
-    // Ticket mode owns the lock canvas: book cover first, ticket on top. Custom wallpaper is wallpaper-only.
-    bool lock_drawn = app_settings_lock_style() == 0
-        ? book_ticket_draw(framebuffer, reader_background)
-        : draw_wallpaper(framebuffer);
+    // 用户修订：锁屏仅显示壁纸，缺少自定义文件时使用内建默认画面。
+    // User revision: wallpaper-only lock; use the bundled image if the custom file is unavailable.
+    (void)reader_background;
+    bool lock_drawn = draw_wallpaper(framebuffer);
     if (!lock_drawn) {
         epd_hl_set_all_white(hl);
         ui_draw_full_image(framebuffer, lock_4bpp_bin_start);
@@ -371,7 +369,7 @@ void enter_lock_and_sleep(
     // 短按电源键只锁屏并浅睡；深度关机只由长按电源菜单触发。
     // A short press only locks and light-sleeps; deep shutdown belongs to the long-press menu.
     ESP_LOGI(TAG, "lock LIGHT");
-    epd_poweroff();
+    display_poweroff();
     app_wake_source_t wake = app_light_sleep_wait_timed(acc, APP_LOCK_LIGHT_SLEEP_MS);
     if (wake == APP_WAKE_TIMEOUT) {
         // PMU SOFT_SLEEP drops the ESP rail while keeping its RTC alive. A short

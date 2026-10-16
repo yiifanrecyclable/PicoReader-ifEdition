@@ -11,6 +11,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "epdiy.h"
@@ -51,6 +52,9 @@ esp_err_t ttf_font_open(const char* path);
 esp_err_t ttf_font_open_builtin(void);
 bool ttf_font_is_builtin(void);
 bool ttf_font_path_is_builtin(const char* path);
+/// 选择系统或阅读字体缓存；调用方须持有绘制锁，失败不丢失另一字体。/ Select a cached face under the draw lock, retaining the other face on failure.
+esp_err_t ttf_font_select_context(bool system,const char *path);
+/// 释放两套字体的来源及缓存；拔卡和USB存储切换前调用。/ Release both faces and caches before card loss or USB storage access.
 void ttf_font_unload(void);
 int ttf_font_scan(void);
 int ttf_font_count(void);
@@ -107,3 +111,6 @@ void ttf_bench_end(ttf_bench_stats_t* out);
 /// Markdown 合成字形：1 加粗，2 倾斜；宽度含边缘留白，不切换全局字体。/ Synthetic Markdown glyphs: 1 bold, 2 italic; reserve edge space without changing the global face.
 int ttf_text_width_styled_px(int px, const char *text, unsigned flags);
 void ttf_draw_glyph_styled_px(uint8_t *fb, int x, int baseline, int px, const char *glyph, unsigned flags, uint8_t fg, uint8_t bg);
+
+/// 回收双槽字形位图，保留字体；调用方持绘制锁。/ Reclaim both glyph caches, retaining loaded faces under the draw lock.
+size_t ttf_font_cache_clear_all(void);

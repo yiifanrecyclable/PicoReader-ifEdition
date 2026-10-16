@@ -79,10 +79,19 @@ static const char *folder_root(int folder) {
     if (folder == 2) return app_settings_fonts_dir();
     return s_dir;
 }
-static int visible_rows(void) { return s_folder == 3 ? 7 : FILE_ROWS; }
-static int root_rows(void) { return 6; }
+static const char *const transfer_methods[]={"WiFi/热点","坚果云同步","USB连接"};
+static bool transfer_wrap(int i){return ui_text_fixed_width_px(ui_text_effective_px(UI_TEXT_BODY),transfer_methods[i])>190;}
+static int transfer_extra_height(void){
+    int lines=1;for(int i=0;i<3;++i)if(transfer_wrap(i))lines=2;
+    int bottom=91+78+(lines-1)*ui_text_line_height(UI_TEXT_BODY)+ui_text_line_height(UI_TEXT_BODY)/2+18;
+    return bottom>212?bottom-212:0;
+}
+#define ROOT_LIST_TOP (360+transfer_extra_height())
+static int file_row_height(void) { return ui_list_row_height(true); }
+static int visible_rows(void) { return ui_list_visible_rows(214,s_view==FILE_VIEW_MOVE?865:UI_NAV_PAGER_TOP,file_row_height()); }
+static int root_rows(void) { return ui_list_visible_rows(ROOT_LIST_TOP,UI_NAV_PAGER_TOP,file_row_height()); }
 static EpdRect home_transfer_rect(int index) {
-    return (EpdRect){36 + index * 156, 266, 144, 100};
+    return (EpdRect){36+index*208,91,196,109+transfer_extra_height()};
 }
 
 static void copy_utf8(char *dst, size_t cap, const char *src) {
@@ -123,6 +132,10 @@ static void migrate_book_state(const char *old_path, const char *new_path, uint3
 }
 
 // 文档事务由专用服务维护；普通文件操作不能拆散正文、图片和索引。/ Generic file operations must not split document bodies, assets and indexes.
+// 标准根目录不可改名/移动/删除；其内部文件仍按各自规则管理。/ Protect fixed roots, retaining normal management of their contents.
+static bool fixed_media_root(const char *path) {
+    return path && (!strcasecmp(path,"/sdcard/books") || !strcasecmp(path,"/sdcard/fonts") || !strcasecmp(path,"/sdcard/markdown"));
+}
 static bool if_managed_path(const char *path) {
     if (strncasecmp(path, "/sdcard/", 8)) return false;
     path += 8;
@@ -282,6 +295,7 @@ static void leave_move(bool changed) {
 }
 
 static app_redraw_t move_selected(void) {
+    if(fixed_media_root(s_selected.path)){snprintf(s_message,sizeof(s_message),"系统目录不可修改");return APP_REDRAW_PAGE;}
     if (if_managed_path(s_selected.path) || if_managed_path(s_dir)) {
         snprintf(s_message, sizeof(s_message), "文档目录请通过坚果云同步管理"); return APP_REDRAW_PAGE;
     }
@@ -405,7 +419,7 @@ static void file_detail(char *dst, size_t cap, const file_item_t *item) {
 // 文件列表的分隔线保持两像素，墨水屏上比浅色发丝线更容易辨认。
 // Two-pixel file dividers stay legible on the panel without changing the layout.
 static void file_rule(uint8_t *fb, int x, int y, int width) {
-    epd_fill_rect((EpdRect){x, y, width, 2}, 0x68, fb);
+    epd_fill_rect((EpdRect){x, y, width, 2}, UI_GRAY_SECTION_LINE, fb);
 }
 
 // 大卡片用双层描边，避免单像素浅灰线在低对比度屏上消失。
@@ -523,101 +537,92 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         for (int row = 0; row < visible_rows(); ++row) {
             int index = s_page * visible_rows() + row;
             if (index >= s_count) break;
-            int y = 214 + row * 91;
+            int y = 214 + row * file_row_height();
             char name[128]; snprintf(name, sizeof(name), "%s", s_files[index].name);
-            while (*name && ttf_text_width_px(ui_text_effective_px(23), name) > 450) {
+            const char *tag = !strcmp(s_files[index].path, app_settings_books_dir()) ? "书籍目录" :
+                              !strcmp(s_files[index].path, app_settings_fonts_dir()) ? "字体目录" : NULL;
+            int name_width=tag?588-ui_text_fixed_width_px(ui_text_effective_px(UI_TEXT_CAPTION),tag)-24-101:450;
+            while (*name && ui_text_fixed_width_px(ui_text_effective_px(UI_TEXT_BODY),name)>name_width) {
                 size_t n = strlen(name) - 1;
                 while (n && ((unsigned char)name[n] & 0xc0) == 0x80) --n;
                 name[n] = 0;
             }
             file_icon(fb, 48, y + 20, s_files[index].is_dir);
-            ui_text(fb, 101, y + 11, 23, name, EPD_DRAW_ALIGN_LEFT, false);
+            ui_text_vc(fb, 101, y+12+ui_text_line_height(UI_TEXT_BODY)/2, UI_TEXT_BODY, name, EPD_DRAW_ALIGN_LEFT, false);
             char detail[32]; file_detail(detail, sizeof(detail), &s_files[index]);
-            ui_text(fb, 101, y + 49, 19, detail, EPD_DRAW_ALIGN_LEFT, false);
-            const char *tag = !strcmp(s_files[index].path, app_settings_books_dir()) ? "书籍目录" :
-                              !strcmp(s_files[index].path, app_settings_fonts_dir()) ? "字体目录" : NULL;
-            if (tag) ui_text(fb, 588, y + 35, 18, tag, EPD_DRAW_ALIGN_RIGHT, false);
-            ui_text(fb, 640, y + 30, 22, "›", EPD_DRAW_ALIGN_RIGHT, false);
-            file_rule(fb, 101, y + 85, 547);
+            ui_text_fixed_vc(fb, 101, y+12+ui_text_line_height(UI_TEXT_BODY)+ui_text_line_height(UI_TEXT_CAPTION)/2, ui_text_effective_px(UI_TEXT_CAPTION), detail, EPD_DRAW_ALIGN_LEFT, false);
+            if(tag)ui_text_fixed_vc(fb,588,y+file_row_height()/2,ui_text_effective_px(UI_TEXT_CAPTION),tag,EPD_DRAW_ALIGN_RIGHT,false);
+            ui_text_vc(fb, 640, y+file_row_height()/2, UI_TEXT_BODY, "›", EPD_DRAW_ALIGN_RIGHT, false);
+            epd_fill_rect((EpdRect){36,y+file_row_height()-2,612,2},UI_GRAY_ITEM_LINE,fb);
         }
-        if (s_folder == 3) {
+        if (s_view == FILE_VIEW_MOVE) {
             ui_draw_round_rect(fb, (EpdRect){36, 875, 293, 76}, 8, UI_GRAY_BLACK);
             ui_draw_round_rect(fb, (EpdRect){355, 875, 293, 76}, 8, UI_GRAY_BLACK);
-            ui_text(fb, 182, 897, 24, s_view == FILE_VIEW_MOVE ? "取消移动" : "设为书籍目录", EPD_DRAW_ALIGN_CENTER, false);
-            ui_text(fb, 501, 897, 24, s_view == FILE_VIEW_MOVE ? "移动到此处" : "设为字体目录", EPD_DRAW_ALIGN_CENTER, false);
+            ui_text(fb, 182, 897, 24, "取消移动", EPD_DRAW_ALIGN_CENTER, false);
+            ui_text(fb, 501, 897, 24, "移动到此处", EPD_DRAW_ALIGN_CENTER, false);
             if (s_message[0]) ui_text(fb, 36, 995, 22, s_message, EPD_DRAW_ALIGN_LEFT, false);
         }
-        char page[32]; snprintf(page, sizeof(page), "%d / %d", s_page + 1, s_count ? (s_count + visible_rows() - 1) / visible_rows() : 1);
-        ui_text(fb, 648, 1057, 22, page, EPD_DRAW_ALIGN_RIGHT, false);
+        if(s_count>visible_rows())ui_nav_draw_pager(fb,s_count,"项",s_page,(s_count+visible_rows()-1)/visible_rows());
     } else {
-        EpdRect storage = {36, 91, 612, 112};
-        ui_fill_round_rect(fb, storage, 24, UI_GRAY_WHITE);
-        file_card_border(fb, storage, 24);
-        ui_text(fb, 58, 108, 27, "存储卡", EPD_DRAW_ALIGN_LEFT, false);
+        static const ui_icon_t icons[] = {UI_ICON_WIFI, UI_ICON_NUTSTORE, UI_ICON_USB};
+        for (int i = 0; i < 3; ++i) {
+            EpdRect card = home_transfer_rect(i);
+            ui_draw_icon(fb, card.x + card.width / 2, card.y + 32, 44, icons[i], UI_GRAY_BLACK);
+            // 正文档保持字号；空间不足按语义分成两行，不缩字。/ Keep body type, using two semantic lines when needed.
+            const char *const first[]={"WiFi/","坚果云","USB"};
+            const char *const second[]={"热点","同步","连接"};
+            bool wrap=transfer_wrap(i);int px=ui_text_effective_px(UI_TEXT_BODY);
+            ui_text_fixed_vc(fb,card.x+card.width/2,card.y+78,px,wrap?first[i]:transfer_methods[i],EPD_DRAW_ALIGN_CENTER,false);
+            if(wrap)ui_text_fixed_vc(fb,card.x+card.width/2,card.y+78+ui_text_line_height(UI_TEXT_BODY),px,second[i],EPD_DRAW_ALIGN_CENTER,false);
+        }
+        int extra=transfer_extra_height();
+        file_rule(fb,36,212+extra,612);
+        ui_text(fb, 58, 236+extra, 27, "存储卡", EPD_DRAW_ALIGN_LEFT, false);
         char total[32], usage[80];
         if (s_sd.mounted) {
             snprintf(total, sizeof(total), "%.1f GB", s_sd.capacity_bytes / 1073741824.0);
-            snprintf(usage, sizeof(usage), "已用 %.1f GB · 可用 %.1f GB",
+            if(!s_sd.space_valid)snprintf(usage,sizeof(usage),"可用空间暂无法读取");
+            else snprintf(usage, sizeof(usage), "已用 %.1f GB · 可用 %.1f GB",
                      (s_sd.capacity_bytes - s_sd.free_bytes) / 1073741824.0,
                      s_sd.free_bytes / 1073741824.0);
         } else {
             snprintf(total, sizeof(total), "未挂载");
             snprintf(usage, sizeof(usage), "请检查 TF 卡");
         }
-        ui_text(fb, 624, 111, 21, total, EPD_DRAW_ALIGN_RIGHT, false);
-        ui_text(fb, 58, 151, 19, usage, EPD_DRAW_ALIGN_LEFT, false);
-        EpdRect capacity = {58, 183, 566, 6};
+        ui_text(fb, 624, 239+extra, 21, total, EPD_DRAW_ALIGN_RIGHT, false);
+        ui_text(fb, 58, 279+extra, 19, usage, EPD_DRAW_ALIGN_LEFT, false);
+        EpdRect capacity = {58, 311+extra, 566, 6};
         ui_fill_round_rect(fb, capacity, 3, 0xa0);
-        if (s_sd.mounted && s_sd.capacity_bytes) {
+        if (s_sd.mounted && s_sd.space_valid && s_sd.capacity_bytes) {
             capacity.width = (int)((s_sd.capacity_bytes - s_sd.free_bytes) * 566 / s_sd.capacity_bytes);
             if (capacity.width > 0) ui_fill_round_rect(fb, capacity, 3, 0x68);
         }
-        ui_text(fb, 42, 228, 21, "传输文件", EPD_DRAW_ALIGN_LEFT, false);
-        static const char *const methods[] = {"WiFi/热点", "坚果云同步", "微读传书", "USB连接"};
-        static const ui_icon_t icons[] = {UI_ICON_WIFI, UI_ICON_NUTSTORE, UI_ICON_WEREAD, UI_ICON_USB};
-        for (int i = 0; i < 4; ++i) {
-            EpdRect card = home_transfer_rect(i);
-            ui_fill_round_rect(fb, card, 20, UI_GRAY_WHITE);
-            ui_draw_icon(fb, card.x + card.width / 2, card.y + 32, 44, icons[i], UI_GRAY_BLACK);
-            ui_text_vc(fb, card.x + card.width / 2, card.y + 78, 20, methods[i],
-                       EPD_DRAW_ALIGN_CENTER, false);
-        }
-        char summary[48]; snprintf(summary, sizeof(summary), "根目录 · %d 项", s_count);
-        ui_text(fb, 36, 402, 21, summary, EPD_DRAW_ALIGN_LEFT, false);
-        ui_fill_round_rect(fb, (EpdRect){537, 378, 111, 50}, 23, UI_GRAY_WHITE);
-        ui_draw_round_rect(fb, (EpdRect){537, 378, 111, 50}, 23, 0x70);
-        ui_text_vc(fb, 592, 403, 19, "名称 ↑", EPD_DRAW_ALIGN_CENTER, false);
+        file_rule(fb,36,350+extra,612);
         int first = s_page * root_rows();
         int rows = s_count - first;
         if (rows > root_rows()) rows = root_rows();
         if (rows < 0) rows = 0;
-        EpdRect list = {36, 440, 612, root_rows() * 91};
-        ui_fill_round_rect(fb, list, 24, UI_GRAY_WHITE);
-        file_card_border(fb, list, 24);
         if (!s_count) ui_text_vc(fb, 342, 485, 22, s_message[0] ? s_message : "根目录为空", EPD_DRAW_ALIGN_CENTER, false);
         for (int row = 0; row < root_rows(); ++row) {
             int index = first + row;
             if (index >= s_count) break;
-            int y = 440 + row * 91;
-            if (row) file_rule(fb, 96, y, 532);
+            int y = ROOT_LIST_TOP + row * file_row_height();
+            if(row)epd_fill_rect((EpdRect){36,y,612,2},UI_GRAY_ITEM_LINE,fb);
             char name[128]; copy_utf8(name, sizeof(name), s_files[index].name); fit_name(name, 23, 430);
-            file_icon(fb, 52, y + 24, s_files[index].is_dir);
+            int title_center=s_files[index].is_dir?y+file_row_height()/2:y+12+ui_text_line_height(UI_TEXT_BODY)/2;
+            file_icon(fb,52,title_center-21,s_files[index].is_dir);
             if (s_files[index].is_dir)
-                ui_text_vc(fb, 101, y + 46, 23, name, EPD_DRAW_ALIGN_LEFT, false);
+                ui_text_vc(fb, 101, y+file_row_height()/2, UI_TEXT_BODY, name, EPD_DRAW_ALIGN_LEFT, false);
             else
-                ui_text(fb, 101, y + 20, 23, name, EPD_DRAW_ALIGN_LEFT, false);
+                ui_text_vc(fb, 101, y+12+ui_text_line_height(UI_TEXT_BODY)/2, UI_TEXT_BODY, name, EPD_DRAW_ALIGN_LEFT, false);
             char detail[32]; file_detail(detail, sizeof(detail), &s_files[index]);
-            if (s_files[index].is_dir) ui_text_vc(fb, 628, y + 46, 24, "›", EPD_DRAW_ALIGN_RIGHT, false);
+            if (s_files[index].is_dir) ui_text_vc(fb, 628, y+file_row_height()/2, UI_TEXT_BODY, "›", EPD_DRAW_ALIGN_RIGHT, false);
             else {
-                ui_text(fb, 101, y + 55, 19, detail, EPD_DRAW_ALIGN_LEFT, false);
-                ui_text_vc(fb, 624, y + 44, 22, "›", EPD_DRAW_ALIGN_RIGHT, false);
+                ui_text_fixed_vc(fb, 101, y+12+ui_text_line_height(UI_TEXT_BODY)+ui_text_line_height(UI_TEXT_CAPTION)/2, ui_text_effective_px(UI_TEXT_CAPTION), detail, EPD_DRAW_ALIGN_LEFT, false);
+                ui_text_vc(fb, 624, y+file_row_height()/2, UI_TEXT_BODY, "›", EPD_DRAW_ALIGN_RIGHT, false);
             }
         }
-        if (s_count > root_rows()) {
-            char page[24]; snprintf(page, sizeof(page), "%d / %d", s_page + 1,
-                                     (s_count + root_rows() - 1) / root_rows());
-            ui_text_vc(fb, 342, 1030, 20, page, EPD_DRAW_ALIGN_CENTER, false);
-        }
+        if(s_count>root_rows())ui_nav_draw_pager(fb,s_count,"项",s_page,(s_count+root_rows()-1)/root_rows());
     }
     ui_nav_draw(fb, 2);
 }
@@ -674,6 +679,7 @@ static void open_selected(app_ctx_t *ctx) {
 }
 
 static void delete_selected(void) {
+    if(fixed_media_root(s_selected.path)){snprintf(s_message,sizeof(s_message),"系统目录不可修改");return;}
     if (if_managed_path(s_selected.path) && !if_managed_document(&s_selected)) {
         s_delete_confirm = false;
         snprintf(s_message, sizeof(s_message), "请在内容页删除文档，图片会随文档清理"); return;
@@ -698,6 +704,7 @@ static void delete_selected(void) {
 }
 
 static app_redraw_t save_rename(void) {
+    if(fixed_media_root(s_selected.path)){snprintf(s_message,sizeof(s_message),"系统目录不可修改");return APP_REDRAW_PAGE;}
     if (if_managed_path(s_selected.path)) {
         snprintf(s_message, sizeof(s_message), "文档重命名请在 Obsidian 中操作"); return APP_REDRAW_PAGE;
     }
@@ -761,6 +768,7 @@ static app_redraw_t action_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev)
     }
     if (ev->y0 >= 648 && ev->y0 < 870) {
         int action = (ev->y0 >= 770 ? 2 : 0) + (ev->x0 >= 352 ? 1 : 0);
+        if(fixed_media_root(s_selected.path)){snprintf(s_message,sizeof(s_message),"系统目录不可修改");return APP_REDRAW_PAGE;}
         if (if_managed_path(s_selected.path) && (action != 3 || !if_managed_document(&s_selected))) {
             snprintf(s_message, sizeof(s_message), "文档目录由同步管理；删除请在内容页操作");
             return APP_REDRAW_PAGE;
@@ -789,6 +797,12 @@ static app_redraw_t rename_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev) 
 static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     if (s_view == FILE_VIEW_ACTIONS) return action_gesture(ctx, ev);
     if (s_view == FILE_VIEW_RENAME) return rename_gesture(ctx,ev);
+    if(ev->type==UI_GESTURE_TAP && (s_view==FILE_VIEW_LIST||s_view==FILE_VIEW_MOVE)) {
+        int rows=s_folder>=0?visible_rows():root_rows();
+        if(s_count>rows)for(int direction=-1;direction<=1;direction+=2)if(ui_rect_hit(ui_nav_pager_rect(direction),ev->x0,ev->y0)){
+            int next=s_page+direction;if(next>=0&&next*rows<s_count){s_page=next;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;
+        }
+    }
     if (s_view == FILE_VIEW_MOVE) {
         if (ev->type == UI_GESTURE_SWIPE_L && (s_page + 1) * visible_rows() < s_count) {
             ++s_page; return APP_REDRAW_PAGE;
@@ -807,7 +821,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
             else return move_selected();
             return APP_REDRAW_PAGE;
         }
-        int row = (ev->y0 - 214) / 91;
+        int row = (ev->y0 - 214) / file_row_height();
         int index = s_page * visible_rows() + row;
         if (ev->y0 >= 214 && row >= 0 && row < visible_rows() && index < s_count) {
             copy_utf8(s_dir, sizeof(s_dir), s_files[index].path);
@@ -822,7 +836,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     if (ev->type == UI_GESTURE_SWIPE_R && s_folder < 0 && s_page > 0) { --s_page; return APP_REDRAW_PAGE; }
     if (ev->type != UI_GESTURE_TAP && ev->type != UI_GESTURE_LONG_PRESS) return APP_REDRAW_NONE;
     bool long_press = ev->type == UI_GESTURE_LONG_PRESS;
-    if (long_press && ev->y0 < (s_folder >= 0 ? 214 : 440)) return APP_REDRAW_NONE;
+    if (long_press && ev->y0 < (s_folder >= 0 ? 214 : ROOT_LIST_TOP)) return APP_REDRAW_NONE;
     int tab = ui_nav_hit(ev->x0, ev->y0);
     if (!long_press && tab >= 0) { ui_nav_request(ctx, tab); return APP_REDRAW_NONE; }
     if (s_folder >= 0) {
@@ -833,25 +847,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
             } else s_folder = -1;
             return APP_REDRAW_PAGE;
         }
-        if (!long_press && s_folder == 3 && ev->y0 >= 875 && ev->y0 < 951) {
-            struct stat selected;
-            if (!strcmp(s_dir, "/sdcard") || stat(s_dir, &selected) || !S_ISDIR(selected.st_mode))
-                snprintf(s_message, sizeof(s_message), "请先进入 TF 卡内的文件夹");
-            else if (ev->x0 < 342) {
-                if (app_settings_set_books_dir(s_dir)) {
-                    book_store_notify_changed();
-                    snprintf(s_message, sizeof(s_message), "已设为书籍目录");
-                } else snprintf(s_message, sizeof(s_message), "目录路径过长，无法设置");
-            } else {
-                if (app_settings_set_fonts_dir(s_dir)) {
-                    ttf_font_scan();
-                    snprintf(s_message, sizeof(s_message), "已设为字体目录");
-                } else snprintf(s_message, sizeof(s_message), "目录路径过长，无法设置");
-            }
-            s_counts[0] = count_root(0); s_counts[2] = count_root(2);
-            return APP_REDRAW_PAGE;
-        }
-        int row = (int)(ev->y0 - 214) / 91;
+        int row = (int)(ev->y0 - 214) / file_row_height();
         int index = s_page * visible_rows() + row;
         if (ev->y0 >= 214 && row >= 0 && row < visible_rows() && index < s_count) {
             if (long_press) {
@@ -873,10 +869,9 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         }
         return APP_REDRAW_NONE;
     }
-    for (int i = 0; !long_press && i < 4; ++i) if (ui_rect_hit(home_transfer_rect(i), ev->x0, ev->y0)) {
-        extern const app_desc_t app_transfer, app_cloud, app_weread;
+    for (int i = 0; !long_press && i < 3; ++i) if (ui_rect_hit(home_transfer_rect(i), ev->x0, ev->y0)) {
+        extern const app_desc_t app_transfer, app_cloud;
         if (i == 1) ctx->request_app = &app_cloud;
-        else if (i == 2) ctx->request_app = &app_weread;
         else {
             if (i == 0) app_transfer_request_method_picker();
             else app_transfer_request_usb_start();
@@ -884,8 +879,8 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         }
         return APP_REDRAW_NONE;
     }
-    if (ev->y0 >= 440 && ev->y0 < 440 + root_rows() * 91) {
-        int row = (ev->y0 - 440) / 91;
+    if (ev->y0 >= ROOT_LIST_TOP && ev->y0 < ROOT_LIST_TOP + root_rows() * file_row_height()) {
+        int row = (ev->y0 - ROOT_LIST_TOP) / file_row_height();
         int index = s_page * root_rows() + row;
         if (row >= 0 && row < root_rows() && index < s_count) {
             if (long_press) {

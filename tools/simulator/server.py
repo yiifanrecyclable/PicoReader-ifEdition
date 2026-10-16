@@ -73,7 +73,7 @@ class Preview:
 
     def sources_signature(self):
         inputs = [HERE / "render.c", HERE / "pixels.c", HERE / "build.sh",
-                  ROOT / "main/font/ttf_font.c", ROOT / "main/assets/builtin.ttf", ROOT / "tools/cloud_host.c", ROOT / "tools/build_cloud_host.sh",
+                  ROOT / "main/font/ttf_font.c", ROOT / "main/assets/builtin.ttf", ROOT / "main/ota_online.h", ROOT / "tools/cloud_host.c", ROOT / "tools/build_cloud_host.sh",
                   ROOT / "main/book/book_layout.c", ROOT / "main/book/html_text.c",
                   ROOT / "main/book/markdown_text.c", ROOT / "main/book/markdown_text.h"]
         inputs.extend((HERE / "include").glob("*.h"))
@@ -91,6 +91,7 @@ class Preview:
         inputs.extend((ROOT/'main/apps').glob('*.h'))
         inputs.extend((ROOT/'main/cloud').glob('*.c'))
         inputs.extend((ROOT/'main/cloud').glob('*.h'))
+        inputs.extend((ROOT/'main/power').glob('*'))
         inputs.extend((HERE/'vendor/cjson').glob('*'))
         inputs.extend((ROOT/'main/assets').glob('*.h'))
         inputs.extend([ROOT/'main/settings.c',ROOT/'main/settings.h',ROOT/'main/font/ui_font.c',ROOT/'components/md4c/md4c.c',ROOT/'components/md4c/md4c.h'])
@@ -136,6 +137,10 @@ class Preview:
     def render(self):
         signature = self.sources_signature()
         if signature != self.signature:
+            # Preserve committed preview preferences; coordinates from older layouts cannot be replayed safely.
+            # 保留已保存的预览设置；旧版排版坐标不在新版源码上重放。
+            self.state.update(events=[],root_view=None)
+            self.replay_origin=None
             subprocess.run(["bash", str(HERE / "build.sh")], cwd=ROOT, check=True,
                            capture_output=True, timeout=60)
             subprocess.run(["bash",str(ROOT/"tools/build_cloud_host.sh")],cwd=ROOT,check=True,capture_output=True,timeout=60)
@@ -154,6 +159,17 @@ class Preview:
             if native=='cloud-0':aux=self.state.get('cloud_page',0)
         if native.startswith('book-'):
             path = self.state.get('root_path') if self.state['root_view'] else self.state['firmware_path']
+            if native in ('book-1','book-2'):
+                physical=CARD/path[8:] if isinstance(path,str) and path.startswith('/sdcard/') else BUILD/'vfs/flash'/path[7:] if isinstance(path,str) and path.startswith('/flash/') else Path(path or '')
+                if not physical.is_file():
+                    # 无有效阅读对象时仅在模拟器存储中准备示例，不修改用户TF卡。/ Keep fallback reading samples inside preview storage, never on the user's card.
+                    sample=BUILD/'vfs/flash/books/阅读操作示例.txt'
+                    sample.parent.mkdir(parents=True,exist_ok=True)
+                    if not sample.exists():sample.write_text(('阅读操作示例。单击左侧或右侧翻页，单击中间打开控制面板。\n\n在“更多”的操作设置中，可以为滑动、长按和双指设置快捷功能；默认不启用。\n\n')*20,encoding='utf-8')
+                    path='/flash/books/阅读操作示例.txt'
+                    if self.state['root_view']:self.state['root_path']=path
+                    else:self.state['firmware_path']=path
+
         mask = sum(1 << i for i, d in enumerate(docs[:8]) if d["id"] in self.state["selected"])
         if not cloud:
             mask = view.get('mask', 0)
@@ -183,6 +199,9 @@ class Preview:
                     credentials={'folder':snapshot['folder'],'account':snapshot['account'],'password':''}
                 backup_input=json.dumps(credentials,ensure_ascii=False)
                 process_env={**os.environ,'PICO_SIM_CLOUD_BACKUP_INPUT':'1'}
+        if native.startswith('settings-'):
+            import os
+            process_env={**(process_env or os.environ),'PICO_SIM_BATTERY_DEMO':'1'}
         result = subprocess.run([str(BUILD / "render"), native, str(path), str(aux), str(px),
                                  str(frame_tmp), str(listing), str(mask), seconds, "builtin",
                                  ';'.join(self.state['events']), directory],
@@ -200,7 +219,7 @@ class Preview:
             self.state['firmware_path'] = info['book_path']
         route = info.get('route', -1)
         if route >= 0:
-            target = ('baseline-home', 'book-0', 'files-home', 'settings-0', 'image-list', 'transfer-methods','cloud-sync','weread')[route]
+            target = ('baseline-home', 'book-0', 'files-home', 'settings-0', 'image-list', 'transfer-methods','cloud-sync')[route]
             if native=='cloud-0' and self.cloud.snapshot()['busy']:
                 self.cloud.request_cancel();self.cloud_pending_view=target;self.state.update(events=[],root_view=None);return self.render()
             if route==3 and info.get('cloud_settings_requested'):
@@ -210,7 +229,7 @@ class Preview:
             if route == 1 and info.get('book_path'):
                 target = 'reader'
             elif route == 5:
-                target = {1:'transfer-networks', 2:'transfer-hotspot', 3:'transfer-usb', 4:'transfer-networks'}.get(info.get('transfer_entry'), target)
+                target = {1:'transfer-networks', 2:'transfer-hotspot', 3:'transfer-usb', 4:'wifi-settings'}.get(info.get('transfer_entry'), target)
             # 跨页面指定文件沿用固件保存的阅读位置，其他页面仍从第一页开始。
             # File-open routes resume production progress; other pages still start on their first page.
             resume = route == 1 and bool(info.get('book_path'))
@@ -259,7 +278,7 @@ class Preview:
             self.state['screen'] = next((v['id'] for v in VIEWS.values() if v['native']==f'files-{n}' and (n != 0 or v['aux']==folder)), 'files-home')
         if info.get('transfer_view', -1) >= 0:
             n, mode = info['transfer_view'], info.get('transfer_mode', 0)
-            self.state['screen'] = next((v['id'] for v in VIEWS.values() if v['native']==f'transfer-{n}' and (n != 1 or v['aux']==mode)), 'transfer-methods')
+            self.state['screen'] = next((v['id'] for v in VIEWS.values() if v['native']==f'transfer-{n}' and ((mode==3 and v['aux']==3) or (mode!=3 and v['aux']!=3 and (n!=1 or v['aux']==mode)))), 'transfer-methods')
         if info.get('image_view', -1) >= 0:
             self.state['screen'] = f"image-{'view' if info['image_view'] else 'list'}"
         if native=='power' and info.get('system_view') in (0,2,3):
@@ -339,14 +358,14 @@ class Preview:
             else:
                 kind=data.get('type')
                 coords=[data.get(k) for k in ('x','y','xx','yy')]
-                if kind not in ('p','m','c','t','l','u','d','r','a') or any(type(n) is not int or not 0<=n<(684 if i%2==0 else 1216) for i,n in enumerate(coords)):raise ValueError('手势无效')
+                if kind not in ('p','m','c','t','l','u','d','r','a','q') or any(type(n) is not int or not 0<=n<(684 if i%2==0 else 1216) for i,n in enumerate(coords)):raise ValueError('手势无效')
                 event=kind+','+','.join(map(str,coords))
             native = VIEWS.get(screen, {}).get('native', '')
             if native=='cloud-0':
                 self.state.update(events=[event],root_view=None)
             elif self.cloud.snapshot()['busy']:
                 raise CloudError('同步进行中，请先取消同步。')
-            elif native.startswith(('settings-', 'book-', 'files-', 'transfer-', 'image-', 'weread-')) or native in ('baseline-home','power','menu'):
+            elif native.startswith(('settings-', 'book-', 'files-', 'transfer-', 'image-')) or native in ('baseline-home','power','menu'):
                 if not self.state['root_view']:
                     self.state.update(root_view=screen, root_page=self.state['page'], root_px=self.state['px'],
                                       root_path=self.state['firmware_path'], root_dir=self.state['files_dir'],
@@ -435,7 +454,7 @@ class Preview:
 
     def baseline_tap(self,screen,x,y):
         native = VIEWS.get(screen, {}).get('native', '')
-        if native.startswith(('settings-', 'book-', 'files-', 'transfer-', 'image-', 'weread-')) or native in ('baseline-home', 'power', 'menu'):
+        if native.startswith(('settings-', 'book-', 'files-', 'transfer-', 'image-')) or native in ('baseline-home', 'power', 'menu'):
             # Legacy tap callers use the same production hit testing as pointer gestures.
             self.action({'action':'gesture','type':'t','x':x,'y':y,'xx':x,'yy':y})
             return

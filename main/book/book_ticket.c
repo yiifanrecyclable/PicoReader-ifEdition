@@ -146,7 +146,7 @@ static void cover_background_draw(uint8_t *fb, const uint8_t *gray) {
         const int sy = crop_y + y * crop_h / UI_LOCK_HEIGHT;
         for (int x = 0; x < UI_LOCK_WIDTH; ++x) {
             const int sx = crop_x + x * crop_w / UI_LOCK_WIDTH;
-            const uint8_t tone = ui_contrast_gray(gray[sy * BOOK_COVER_W + sx]);
+            const uint8_t tone = ui_gray_level(gray[sy * BOOK_COVER_W + sx]);
             epd_draw_pixel(x, y, ui_image_dither_gray(tone, x, y), fb);
         }
     }
@@ -187,7 +187,7 @@ static void cover_draw(uint8_t *fb, const uint8_t *gray, const char *title) {
             for (int x = 0; x < box.width; ++x) {
                 int sx = x * BOOK_COVER_W / box.width;
                 int sy = y * BOOK_COVER_H / box.height;
-                const uint8_t tone = ui_contrast_gray(gray[sy * BOOK_COVER_W + sx]);
+                const uint8_t tone = ui_gray_level(gray[sy * BOOK_COVER_W + sx]);
                 epd_draw_pixel(box.x + x, box.y + y,
                                ui_image_dither_gray(tone, box.x + x, box.y + y), fb);
             }

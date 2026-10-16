@@ -1,11 +1,10 @@
-Pico Reader IF Edition 0.3.3-rc83-if.8
-基于 Pico Reader 0.3.3-rc83 (9a1b85d13a6dd0fdce8531f82a63a6cbc8ef928f)，选择性采用 rc88 阅读改进。
-原作者项目主页 https://wegooo-cell.github.io/read-pico-reader/
+if-ink OS v0.1.1
+基于 Pico Reader 0.3.3-rc83 (9a1b85d13a6dd0fdce8531f82a63a6cbc8ef928f)，选择性采用 rc88/rc95 阅读、刷新与存储改进。
+原作者主页 https://wegooo-cell.github.io/read-pico-reader/
 原作者源码 https://github.com/wegooo-cell/read-pico-reader
-这是独立衍生版本，不是原作者或 MindReset 官方发布。保留上游版权及各组件声明。
-应用代码主体采用 Apache-2.0；epdiy 使用 LGPL-3.0-or-later；字体、词库等适用各自许可。
-完整许可文本见 licenses/。
-IF项目源码 https://github.com/yiifanrecyclable/if-ink-OS
-对应版本源码及构建/重新链接说明 https://github.com/yiifanrecyclable/if-ink-OS/tree/0.3.3-rc83-if.8
-对应版本源码下载 https://github.com/yiifanrecyclable/if-ink-OS/archive/refs/tags/0.3.3-rc83-if.8.zip
-版本页面 https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/0.3.3-rc83-if.8
+本项目是独立衍生版本，不是原作者或 MindReset 官方发布，保留上游版权。
+主体 Apache-2.0；epdiy LGPL-3.0-or-later；其他组件、字体及词库依各自许可。
+完整声明见 LICENSE、THIRD_PARTY_NOTICES.md 和 licenses/。
+对应源码及构建/重新链接说明 https://github.com/yiifanrecyclable/if-ink-OS/tree/v0.1.1
+源码下载 https://github.com/yiifanrecyclable/if-ink-OS/releases/download/v0.1.1/if-ink-OS-v0.1.1-source.zip
+版本页面 https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.1.1

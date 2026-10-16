@@ -70,3 +70,13 @@ size_t book_layout_page_start_offset(size_t page);
 void book_layout_set_markdown(bool enabled, const uint8_t headings[3], const text_style_t *styles, size_t count);
 /// 借用 Markdown 单元格至下一次设置；正文偏移不变。/ Borrow Markdown cells until reset, preserving text offsets.
 void book_layout_set_markdown_tables(const markdown_cell_t *cells, size_t count);
+
+/// 分行续画状态；只在同一页和布局代次有效。表格以块为最小工作单元。/ Resumable row cursor; valid for one page/generation, with tables as atomic work units.
+typedef struct {
+    size_t page,offset;
+    int64_t used;
+    uint32_t generation,image_at;
+    bool started;
+} book_layout_cursor_t;
+/// 画一个文字行或表格块；0未完成、1完成、-1失效/失败，调用方须持字体锁。/ Paint one row/table unit: 0 more, 1 done, -1 invalid/failure; caller holds the font lock.
+int book_layout_draw_slice(uint8_t *fb,size_t page,EpdRect rect,int px,book_layout_cursor_t *cursor);

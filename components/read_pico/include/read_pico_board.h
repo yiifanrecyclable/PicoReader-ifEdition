@@ -84,7 +84,11 @@ esp_err_t read_pico_get_ioe_status(read_pico_status_t* status);
 /// / Sequential 8-register read; refreshes CFG/INV cache. Footer Read and page enter.
 esp_err_t read_pico_get_ioe_status_full(read_pico_status_t* status);
 int read_pico_ioe_int_level(void);
+/// 读取卡存在状态，通信失败保持未知，不等于拔卡。/ Read presence; communication failure is unknown, not removal.
+esp_err_t read_pico_sd_detect(bool *present);
 bool read_pico_sd_present(void);
+/// 关闭像素驱动而保留高压轨；失败须重试，调用方串行化扫描。/ Release pixel drive, retaining rails; retry failures and serialize against scanning.
+bool read_pico_epd_release_drive(void);
 bool read_pico_rails_on(void);
 
 /// 翻转 VCOMCTL：1=外部 VCOM_EN，0=自动时序。

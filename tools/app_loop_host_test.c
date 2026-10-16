@@ -32,6 +32,14 @@ static int home_enters, home_renders, last_menu_leaf, rendered_leaf;
 static const app_desc_t* menu_background;
 static app_desc_t first, second;
 static bool full_tick, lock_due, font_due;
+static uint8_t idle_minutes;
+static int idle_locks,before_locks;
+static bool background_busy;
+uint8_t app_settings_idle_sleep_minutes(void){return idle_minutes;}
+static bool prevent_idle(app_ctx_t *c){(void)c;return background_busy;}
+static bool busy_until_two(app_ctx_t *c){(void)c;return step<2;}
+static void before_lock(app_ctx_t *c){(void)c;++before_locks;}
+
 static int64_t time_offset, time_step;
 static int du_areas, gl_areas;
 static bool media_test, sd_font, saved_sd_font;
@@ -62,7 +70,7 @@ bool display_take_white_exit(void) {return false;}
 void rails_idle_check(int64_t n) {(void)n;}
 bool read_pico_pmu_ready(void) {return lock_due;}
 read_pico_pmu_key_action_t read_pico_pmu_take_key_action(void) {return READ_PICO_PMU_KEY_SHORT;}
-void enter_lock_and_sleep(EpdiyHighlevelState*h,int64_t*t,void*a,bool reader) {(void)h;(void)t;(void)a;(void)reader;lock_due=false;time_offset+=1000000;}
+void enter_lock_and_sleep(EpdiyHighlevelState*h,int64_t*t,void*a,bool reader) {(void)h;(void)t;(void)a;(void)reader;if(idle_minutes)assert(before_locks==idle_locks+1);lock_due=false;++idle_locks;time_offset+=1000000;}
 void app_lock_wait_key_idle(int ms) {(void)ms;}
 void app_enter_host_sleep(app_sleep_mode_t mode) {(void)mode;longjmp(done,1);}
 void app_restart_host(void) {longjmp(done,1);}
@@ -75,6 +83,7 @@ bool ttf_font_ready(void) {return true;}
 bool ttf_font_is_builtin(void) {return !sd_font;}
 const char* ttf_font_path(void) {return "other";}
 int ttf_font_open(const char*p) {(void)p;font_opens++;sd_font=true;return 0;}
+void ttf_font_unload(void) {assert(media_lost>0);}
 int ttf_font_open_builtin(void) {assert(media_lost>0);builtin_opens++;sd_font=font_due=false;return 0;}
 int read_pico_sd_get_info(read_pico_sd_info_t*i) {i->present=media_test?present_steps[step]:font_due;i->mounted=media_test?mounted_steps[step]:font_due;return media_test&&!i->mounted?ESP_ERR_INVALID_STATE:0;}
 void read_pico_sd_start_probe(void) {probes++;}
@@ -125,6 +134,7 @@ static void reset(void) {
     long_keys=0;
     home_on_touch=home_on_tick=home_on_key=start_second=false;
     home_enters=home_renders=0;rendered_leaf=-1;last_menu_leaf=-1;menu_background=NULL;
+    idle_minutes=0;idle_locks=before_locks=0;background_busy=false;
     full_tick=lock_due=font_due=false;time_offset=0;time_step=10000;du_areas=gl_areas=0;
     memset(samples,0,sizeof(samples));memset(keys,0,sizeof(keys));memset(events,0,sizeof(events));memset(tick_consumed,0,sizeof(tick_consumed));
     sample_count=step=ticks=enters=exits=touch_calls=menus=highlights=restores=fulls=mode=0;
@@ -143,6 +153,18 @@ static void home_case(void) {
     first.on_enter=home_enter;first.render=home_render;first.on_tick=NULL;first.on_touch=NULL;
 }
 int main(void) {
+    // 真实调度：闲置达到阈值、触摸/保持重置、后台阻塞和关闭；保存先于锁屏。
+    // Real scheduler: timeout, input/hold reset, busy suspension, disabled mode and pre-lock saving.
+    reset();idle_minutes=1;time_step=60000000;first.on_before_lock=before_lock;
+    add(0,0,0,0);add(0,0,0,0);add(0,0,0,0);run();assert(idle_locks==2&&before_locks==2);
+    reset();idle_minutes=1;time_step=30000000;first.on_before_lock=before_lock;
+    add(0,0,0,0);add(100,400,1,0);add(100,400,1,0);add(0,0,0,0);add(0,0,0,0);run();assert(!idle_locks&&!before_locks);
+    reset();idle_minutes=1;time_step=60000000;background_busy=true;first.prevent_idle_sleep=prevent_idle;
+    add(0,0,0,0);add(0,0,0,0);add(0,0,0,0);run();assert(!idle_locks);
+    reset();idle_minutes=1;time_step=30000000;first.prevent_idle_sleep=busy_until_two;first.on_before_lock=before_lock;
+    add(0,0,0,0);add(0,0,0,0);add(0,0,0,0);add(0,0,0,0);run();assert(!idle_locks);
+    reset();time_step=60000000;add(0,0,0,0);add(0,0,0,0);run();assert(!idle_locks);
+
     reset();add(100,400,1,0);add(110,400,1,0);add(0,0,0,0);run();
     assert(touch_calls==1&&ticks==3&&!tick_consumed[0]);
     reset();response=APP_REDRAW_AREA;add(100,400,1,0);run();assert(touch_calls==1&&tick_consumed[0]);
@@ -234,11 +256,11 @@ int main(void) {
     reset();media_test=sd_font=true;mounted_steps[0]=true;time_step=600000;first.on_media_lost=lost;
     add(650,1150,1,0);add(0,0,0,0);add(0,0,0,0);run();
     assert(media_lost==1&&builtin_opens==1&&menus==2&&ticks==0);
-    // 延迟挂载后拔卡同样被捕获，使用内置字体无需再打开一次。
-    // Removal after a late mount is detected without reopening an already built-in font.
+    // 即使当前是内置字体，另一个缓存槽也可能引用卡；拔卡必须清空两槽再回退。
+    // Even with a built-in active face, the other slot may use SD; purge both before fallback.
     reset();media_test=true;mounted_steps[1]=true;time_step=600000;first.on_media_lost=lost;
     add(0,0,0,0);add(0,0,0,0);add(0,0,0,0);run();
-    assert(media_lost==1&&loss_step==2&&!builtin_opens);
+    assert(media_lost==1&&loss_step==2&&builtin_opens==1);
     // 首次无卡时后插卡应触发探测，挂载完成只通知页面一次。
     // First insertion after an empty boot probes, then notifies the active page once.
     reset();media_test=true;time_step=600000;first.on_media_ready=ready;
@@ -274,10 +296,15 @@ int main(void) {
     reset();media_test=sd_font=saved_sd_font=true;mounted_steps[0]=true;first.on_media_lost=lost;
     time_step=4000000;for(int i=0;i<5;++i){present_steps[i]=true;add(0,0,0,0);}run();
     assert(media_lost==1&&remounts==1&&builtin_opens==1&&!probes);
-    puts("app_loop: 44 scheduler scenarios passed");
+    puts("app_loop: scheduler and idle-sleep scenarios passed");
     return 0;
 }
 
 /* 中文：硬件 BLE 与联网任务替身。/ English: Hardware BLE and online worker shims. */
 const app_desc_t app_weread = { .title = "WeRead test" };
 bool pico_online_busy(void) { return false; }
+
+const pmu_snapshot_t *read_pico_pmu_get(void) { return NULL; }
+void battery_history_observe(uint32_t at, int percent, unsigned millivolts, bool charging, bool ready) {
+    (void)at; (void)percent; (void)millivolts; (void)charging; (void)ready;
+}

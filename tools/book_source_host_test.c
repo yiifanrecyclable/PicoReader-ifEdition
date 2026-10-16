@@ -80,6 +80,11 @@ int main(int argc, char **argv) {
             sum += len; free(out);
         }
         printf("fixture %s: %zu chapters, %zu UTF-8 bytes\n", argv[a], book_chapter_count(), sum);
+        for(size_t position=0;position<book_navigation_count();++position){
+            assert(book_navigation_title(position,title,sizeof(title))==ESP_OK);
+            const char *anchor=book_navigation_anchor(position);
+            if(anchor)assert(strlen(anchor)<128);
+        }
         book_close();
         assert(book_kind() == BOOK_KIND_TXT && book_chapter_count() == 0);
     }

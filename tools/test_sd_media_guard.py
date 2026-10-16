@@ -57,6 +57,7 @@ static bool made_books, made_fonts, made_pictures;
 static sdmmc_card_t mock_card={.cid={"MOCK"},.csd={2048,512}};
 static void (*pending)(void*);
 static bool read_pico_sd_present(void) { return present; }
+static esp_err_t read_pico_sd_detect(bool *value) { *value=present;return ESP_OK; }
 static void vTaskDelay(int n) {(void)n;}
 static void vTaskDelete(void* p) {(void)p;}
 static int xTaskCreate(void (*f)(void*), const char* n,int z,void* a,int pr,void* h) {

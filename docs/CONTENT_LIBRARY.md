@@ -1,6 +1,6 @@
 # 内容页管理与排序
 
-内容页保留图书书架和Markdown文档列表。两页右上角均为「管理」「排序」，只作用于当前子页；传入文件统一使用文件页的四个传输入口。图书沿用原有书库和其他目录读过的TXT/EPUB，Markdown阅读记录不会补入图书书架。
+内容页保留图书书架和Markdown文档列表。两页右上角均为「管理」「排序」，只作用于当前子页；传入文件统一使用文件页的三个传输入口。图书沿用原有书库和其他目录读过的TXT/EPUB，Markdown阅读记录不会补入图书书架。
 
 ## 图书陈列
 
@@ -71,3 +71,9 @@ bash tools/run_markdown_table_tests.sh
 SANITIZE=1 bash tools/simulator/build.sh
 ASAN_OPTIONS=detect_leaks=0 python3 tools/test_markdown_tables.py
 ```
+
+## 固定存储目录
+
+图书根目录固定为TF卡的`books`，字体目录固定为`fonts`，Markdown文档目录固定为`markdown`（附件在`markdown/attachments`）。删除“设为书籍目录／字体目录”，旧自定义路径和旧备份不会改变标准根目录；原目录与原文件保留，需用户自行移入标准目录。标准根目录不可在设备上改名、移动或删除，其内部文件仍按既有规则管理。文件页只保留WiFi/热点、坚果云同步和USB连接三个入口。
+
+English: Fixed TF roots are books, fonts and markdown. Legacy root preferences/backups cannot reroute them or move files. Protect the root folders from rename/move/delete; retain existing management rules for their contents. Files exposes WiFi/hotspot, Nutstore and USB.

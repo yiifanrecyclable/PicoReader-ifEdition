@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>if-ink OS · 实时开发预览</title>
+  <style>
+    :root{color-scheme:light;--ink:#252523;--muted:#777770;--paper:#f1f0ec;--line:#deddd6}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
+    header{display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid var(--line)}header strong{font-size:17px;font-weight:600;letter-spacing:1px}header span{font-size:11px;color:var(--muted)}
+    main{max-width:700px;margin:auto;padding:18px 16px 24px}.tools{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}button,select,.upload{border:1px solid #d4d3cc;background:#faf9f6;color:var(--ink);padding:8px 11px;border-radius:8px;font:inherit;cursor:pointer}button:hover,.upload:hover{background:#e8e7e1}button:focus-visible,select:focus-visible,.upload:focus-within{outline:2px solid #717169;outline-offset:2px}
+    .upload input{display:none}.device{width:min(100%,340px);margin:0 auto;background:#b8b8b3;padding:13px 10px 11px;border-radius:21px;box-shadow:0 7px 22px #29291e18;border:1px solid #a7a79f}
+    .screen{background:#fff;border-radius:4px;overflow:hidden;border:1px solid #8f9089}canvas{display:block;width:100%;height:auto;touch-action:none;cursor:pointer;image-rendering:auto}.keys{display:flex;justify-content:space-around;padding-top:10px}.keys button{border:0;background:transparent;font-size:18px;color:#43433d;padding:5px 22px;min-height:34px}.keys button:hover{background:#9f9f98}
+    .detail{text-align:center;color:var(--muted);font-size:12px;line-height:1.7;margin-top:12px}.detail strong{font-weight:500;color:var(--ink)}.status{min-height:22px;margin-top:9px;text-align:center;font-size:12px;color:#56564e}.status.error{color:#9c3928}.days{max-width:340px;margin:18px auto 0;border-top:1px solid var(--line);padding-top:12px}.days summary{cursor:pointer;font-size:12px;color:var(--muted)}.day-inputs{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:10px}.day-inputs label{font-size:11px;text-align:center;color:var(--muted)}.day-inputs input{width:100%;padding:5px 0;text-align:center;border:1px solid var(--line);background:#faf9f6;border-radius:5px;color:var(--ink)}.days .hint{font-size:11px;text-align:center;color:var(--muted)}.days button{display:block;margin:8px auto;font-size:12px}footer{text-align:center;font-size:11px;color:#999990;margin-top:20px}
+  </style>
+</head>
+<body>
+  <header><strong>if-ink OS</strong><span>v0.1.1 预览 · 基于 Pico Reader rc83</span></header>
+  <main>
+    <div class="tools"><button data-action="home">首页</button><button data-action="cloud">坚果云</button><button data-action="contents">内容</button><button data-action="files">文件</button><button data-action="settings">设置</button><label class="upload">打开 MD<input id="file" type="file" accept=".md,text/markdown"></label><select id="font" aria-label="阅读字号"><option value="36">小字号</option><option value="48" selected>标准字号</option><option value="56">大字号</option><option value="64">更大字号</option><option value="72">最大字号</option></select></div>
+    <div class="tools"><select id="view" aria-label="固件界面"></select><button id="up" aria-label="向上滑动">↑</button><button id="down" aria-label="向下滑动">↓</button><button id="power" aria-label="电源菜单">⏻</button><button data-action="reload-card">重新载入 TF卡</button></div><div class="device"><div class="screen"><canvas id="screen" width="684" height="1216" aria-label="Pico 可交互模拟屏幕"></canvas></div><div class="keys"><button id="previous" aria-label="上一页">‹</button><button id="middle" aria-label="中间触控键">○</button><button id="next" aria-label="下一页">›</button></div></div>
+    <div class="detail"><strong id="position">684 × 1216 · 16 级灰度</strong><br>rc83 IF 界面绘制 · 电量、存储、阅读记录和无线网络为演示数据。<br>坚果云同步使用真实HTTPS只读客户端；需在下方配置。原型目录仅作示例。</div>
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+    <details class="days" id="cloud-config"><summary>坚果云连接配置</summary>
+      <p class="hint">填写坚果云第三方应用密码。密码保存到Mac钥匙串；文件夹与Obsidian插件保持一致。</p>
+      <label style="display:block;margin:8px 0">同步文件夹<input id="cloud-folder" value="PicoBox" maxlength="240" style="display:block;width:100%;margin-top:5px;padding:8px" autocomplete="off"></label>
+      <label style="display:block;margin:8px 0">坚果云账号<input id="cloud-account" maxlength="128" style="display:block;width:100%;margin-top:5px;padding:8px" autocomplete="username"></label>
+      <label style="display:block;margin:8px 0">应用密码<input id="cloud-password" type="password" maxlength="256" style="display:block;width:100%;margin-top:5px;padding:8px" autocomplete="off" placeholder="已有配置时留空，保留原应用密码"></label>
+      <button id="cloud-save">保存到钥匙串并读取目录</button><button id="cloud-forget">移除本工具配置</button>
+      <p class="hint">真机请在「设置 → 坚果云同步」手动填写三项；确认后自动保存，并随设置页的「保存当前配置到TF卡」一起备份。</p>
+    </details>
+    <details class="days"><summary>模拟阅读快捷手势</summary><select id="reader-gesture" aria-label="阅读快捷手势"><option value="0">单指向左滑动</option><option value="1">单指向右滑动</option><option value="2">单指向上滑动</option><option value="3">单指向下滑动</option><option value="4">长按正文</option><option value="5">双指轻点</option><option value="6">双指捏合</option><option value="7">双指张开</option></select><button id="reader-gesture-run">执行已绑定操作</button><p class="hint">先在阅读控制面板的“更多 → 快捷手势”绑定；未绑定时不执行任何操作。</p></details>
+    <details class="days"><summary>调整最近七天阅读时长</summary><div id="days" class="day-inputs"></div><p class="hint">0 分钟白底灰框 · 读过即填色 · 120 分钟深灰</p><button id="apply-days">更新屏幕</button></details>
+    <footer>左键点击 · 按住半秒或右键长按 · 拖动滑动 · 源码更新后自动刷新</footer>
+  </main>
+  <script>
+    const canvas=document.getElementById('screen'),ctx=canvas.getContext('2d'),status=document.getElementById('status');
+    let version=-1,state=null,polling=false,busy=false,webVersion=null,cloudConfigDirty=false;
+    function message(s,error=false){status.textContent=s;status.classList.toggle('error',error)}
+    async function apply(s){if(webVersion&&webVersion!==s.web_version){location.reload();return}webVersion=s.web_version;state=s;const selector=document.getElementById('view');if(!selector.options.length){let lastGroup=null,group=null;for(const view of s.views){if(view.group!==lastGroup){group=document.createElement('optgroup');group.label=view.group;selector.appendChild(group);lastGroup=view.group}const option=document.createElement('option');option.value=view.id;option.textContent=view.label;group.appendChild(option)}}selector.value=s.screen;document.getElementById('font').value=s.px;if(s.open_cloud_config)document.getElementById('cloud-config').open=true;if(s.cloud_state&&!cloudConfigDirty){if(document.activeElement!==document.getElementById('cloud-folder'))document.getElementById('cloud-folder').value=s.cloud_state.folder;if(document.activeElement!==document.getElementById('cloud-account'))document.getElementById('cloud-account').value=s.cloud_state.account;}document.getElementById('position').textContent=(s.screen==='reading'||s.screen.startsWith('reader'))?`第 ${s.page+1} / ${s.pages} 页 · ${s.px}px`:`${s.view_label} · 684 × 1216 · 16 级灰度`;if(s.version!==version){const response=await fetch('/api/frame?v='+s.version);if(!response.ok)throw Error('屏幕读取失败');const raw=new Uint8Array(await response.arrayBuffer());if(raw.length!==684*1216/2)throw Error('帧尺寸不匹配');const image=ctx.createImageData(684,1216);for(let i=0;i<684*1216;i++){const gray=((i&1)?raw[i>>1]>>4:raw[i>>1]&15)*17;image.data[i*4]=image.data[i*4+1]=image.data[i*4+2]=gray;image.data[i*4+3]=255}ctx.putImageData(image,0,0);version=s.version}if(s.message)message(s.message);else if(s.document_zoom)message('按住上下拖动查看长图 · 单击退出');if(!document.querySelector('#days input')){const labels=['前六天','前五天','前四天','前三天','前两天','昨天','今天'];for(let i=0;i<7;i++){const label=document.createElement('label');label.textContent=labels[i];const input=document.createElement('input');input.type='number';input.min='0';input.max='1440';input.value=s.days[s.days.length-7+i];input.setAttribute('aria-label',labels[i]+'阅读分钟');label.appendChild(input);document.getElementById('days').appendChild(label)}}}
+    async function send(data,route='/api/input'){if(busy||polling){await new Promise(resolve=>setTimeout(resolve,30));return send(data,route)}busy=true;try{message('');const response=await fetch(route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const result=await response.json();if(!response.ok)throw Error(result.error||'操作失败');await apply(result);return true}catch(e){message(e.message,true);return false}finally{busy=false}}
+    document.getElementById('reader-gesture-run').onclick=()=>{const slot=Number(document.getElementById('reader-gesture').value);return send({action:'gesture',type:'q',x:slot,y:0,xx:slot,yy:0})};
+    document.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>send({action:button.dataset.action}));
+    document.getElementById('view').onchange=e=>send({action:'view',view:e.target.value});document.getElementById('middle').onclick=()=>send({action:'key',key:1});document.getElementById('up').onclick=()=>send({action:'gesture',type:'u',x:342,y:850,xx:342,yy:400});document.getElementById('down').onclick=()=>send({action:'gesture',type:'d',x:342,y:400,xx:342,yy:850});document.getElementById('power').onclick=()=>send({action:'view',view:'power'});document.getElementById('previous').onclick=()=>send({action:'key',key:0});document.getElementById('next').onclick=()=>send({action:'key',key:2});
+    for(const id of ['cloud-folder','cloud-account'])document.getElementById(id).addEventListener('input',()=>{cloudConfigDirty=true});
+    document.getElementById('cloud-save').onclick=async()=>{const input=document.getElementById('cloud-password');const password=input.value;input.value='';if(await send({folder:document.getElementById('cloud-folder').value,account:document.getElementById('cloud-account').value,password},'/api/cloud/config'))cloudConfigDirty=false};
+    document.getElementById('cloud-forget').onclick=async()=>{if(await send({},'/api/cloud/forget')){cloudConfigDirty=false;await apply(state)}};
+    document.getElementById('font').onchange=e=>send({action:'font',px:Number(e.target.value)});
+    // Match native ui_kit.h: fire while held, cancel after movement, never tap again.
+    // 与真机阈值一致：按住时触发，移动取消长按，松开不再重复点击。
+    const LONG_PRESS_MS=500,TOUCH_SLOP_PX=24,SWIPE_MIN_PX=120;
+    let contact=null,lastMove=0;
+    function point(e){const box=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(683,Math.floor((e.clientX-box.left)*684/box.width))),y:Math.max(0,Math.min(1215,Math.floor((e.clientY-box.top)*1216/box.height)))}}
+    function gesture(type,start,end=start){return send({action:'gesture',type,x:start.x,y:start.y,xx:end.x,yy:end.y})}
+    function clearContact(){const old=contact;if(!old)return null;clearTimeout(old.timer);contact=null;if(canvas.hasPointerCapture(old.id))canvas.releasePointerCapture(old.id);return old}
+    function cancelContact(){const old=clearContact();if(old?.zoom)gesture('c',old)}
+    canvas.onpointerdown=e=>{if(e.button!==0||e.isPrimary===false||contact)return;e.preventDefault();contact={...point(e),id:e.pointerId,zoom:!!state?.document_zoom,moved:false,longFired:false};canvas.setPointerCapture(e.pointerId);lastMove=0;
+      if(contact.zoom){gesture('p',contact);return}
+      const held=contact;held.timer=setTimeout(()=>{if(contact!==held||held.moved||held.longFired)return;held.longFired=true;gesture('l',held)},LONG_PRESS_MS)};
+    canvas.onpointermove=e=>{if(!contact||e.pointerId!==contact.id||contact.longFired)return;const end=point(e),dx=end.x-contact.x,dy=end.y-contact.y;
+      if(dx*dx+dy*dy>TOUCH_SLOP_PX*TOUCH_SLOP_PX){contact.moved=true;clearTimeout(contact.timer)}
+      if(!contact.zoom||busy||polling||Date.now()-lastMove<100||Math.abs(dy)<8)return;lastMove=Date.now();contact.zoomMoved=true;gesture('m',contact,end)};
+    canvas.onpointerup=async e=>{if(!contact||e.pointerId!==contact.id||e.button!==0)return;const end=point(e),old=clearContact(),dx=end.x-old.x,dy=end.y-old.y;if(old.longFired)return;
+      if(old.zoom&&(old.zoomMoved||Math.abs(dy)>8)){await gesture('m',old,end);await gesture('c',old,end);return}
+      const ax=Math.abs(dx),ay=Math.abs(dy);const type=ax>=SWIPE_MIN_PX&&ax>ay?dx>0?'r':'a':ay>=SWIPE_MIN_PX&&ay>ax?dy>0?'d':'u':old.moved||dx*dx+dy*dy>TOUCH_SLOP_PX*TOUCH_SLOP_PX?'c':'t';gesture(type,old,end)};
+    canvas.onpointercancel=e=>{if(contact?.id===e.pointerId)cancelContact()};
+    canvas.onlostpointercapture=e=>{if(contact?.id===e.pointerId)cancelContact()};
+    canvas.oncontextmenu=e=>{e.preventDefault();if(contact){if(contact.longFired||contact.moved)return;clearTimeout(contact.timer);contact.longFired=true;gesture('l',contact)}else gesture('l',point(e))};
+    window.addEventListener('blur',cancelContact);
+    document.getElementById('file').onchange=async e=>{const file=e.target.files[0];if(!file)return;if(file.size>262144){message('第一版支持不超过 256 KiB 的 MD 正文',true);return}try{const bytes=await file.arrayBuffer();const content=new TextDecoder('utf-8',{fatal:true}).decode(bytes);await send({name:file.name,content},'/api/upload')}catch(error){message('请选择 UTF-8 编码的 Markdown 文档',true)}e.target.value=''};
+    document.getElementById('apply-days').onclick=()=>send({action:'days',days:[...document.querySelectorAll('#days input')].map(i=>Number(i.value))});
+    document.addEventListener('keydown',e=>{if(e.target.matches('input,select'))return;if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();send({action:e.key==='ArrowRight'?'next':'previous'})}});
+    async function poll(){if(polling||busy)return;polling=true;try{const response=await fetch('/api/state');if(!response.ok)throw Error('预览服务未连接');await apply(await response.json())}catch(e){message('预览服务连接中断；保留上一帧',true)}finally{polling=false}}
+    poll();setInterval(poll,1000);
+  </script>
+</body>
+</html>

@@ -25,10 +25,6 @@ def function(name):
     m=re.search(r'^static [^\n]+\b'+name+r'\([^;{}]*\)\s*\{',s,re.M)
     assert m,name
     return block(m.start())
-render_start=s.index('static void render(')
-render_size=block(s.index('if (s_page == SETTINGS_SYSTEM_SIZE)',render_start))
-gesture_start=s.index('static app_redraw_t on_gesture(')
-select_size=block(s.index('if (s_page == SETTINGS_SYSTEM_SIZE)',gesture_start))
 unit=r"""
 #include <assert.h>
 #include <stdbool.h>
@@ -40,8 +36,8 @@ typedef struct {uint8_t *fb;void *hl;} app_ctx_t;
 typedef enum {APP_REDRAW_NONE,APP_REDRAW_AREA,APP_REDRAW_PAGE} app_redraw_t;
 typedef enum {UI_GESTURE_PRESS,UI_GESTURE_MOVE,UI_GESTURE_TAP,UI_GESTURE_CANCEL,UI_GESTURE_SWIPE_U,UI_GESTURE_SWIPE_D} gesture_t;
 typedef struct {gesture_t type;int x,y,x0,y0;} ui_gesture_event_t;
-enum {SETTINGS_MAIN,SETTINGS_UPGRADE,SETTINGS_SYSTEM_SIZE,
-      SETTINGS_SYSTEM_FONT,SETTINGS_WALLPAPER,SETTINGS_TEXT_EDIT,SETTINGS_HOME_QUOTE};
+enum {SETTINGS_MAIN,SETTINGS_UPGRADE,SETTINGS_SYSTEM_SIZE,SETTINGS_CLOUD,
+      SETTINGS_SYSTEM_FONT,SETTINGS_WALLPAPER,SETTINGS_TEXT_EDIT,SETTINGS_HOME_QUOTE,SETTINGS_ONLINE_UPDATE};
 enum EpdDrawMode {MODE_GC16,MODE_GL16};
 #define UI_NAV_TOP 1136
 #define UI_LOCK_WIDTH 684
@@ -59,22 +55,7 @@ static int update_display_area_with(void *hl,const int *wave,enum EpdDrawMode mo
 static int update_display_area_diff_with(void *hl,const int *wave,enum EpdDrawMode mode,EpdRect area){return update_display_area_with(hl,wave,mode,area);}
 static void guard_draw_result(void *hl,int status){(void)hl;assert(!status);}
 static EpdRect ui_text_input_area(void){return (EpdRect){0,226,684,990};}
-static bool ui_rect_hit(EpdRect r,int x,int y){return x>=r.x&&y>=r.y&&x<r.x+r.width&&y<r.y+r.height;}
-static uint8_t chosen=120;
-static uint8_t app_settings_system_font_size(void){return chosen;}
-static void app_settings_set_system_font_size(uint8_t percent){chosen=percent;}
-static void ui_text_set_system_scale(bool enabled){assert(enabled);}
-static void back_header(uint8_t *fb,const char *s){(void)fb;(void)s;}
-static void section(uint8_t *fb,int y,const char *s){(void)fb;(void)y;(void)s;}
-static unsigned cards;
-static EpdRect boxes[11];
-static void settings_card(uint8_t *fb,EpdRect r,int radius,int fill,int border){(void)fb;(void)radius;(void)fill;(void)border;assert(cards<11);boxes[cards++]=r;assert(r.y+r.height<UI_NAV_TOP);}
-static void ui_text_vc(uint8_t *fb,...){(void)fb;}
-static void epd_fill_circle(int x,int y,int r,int gray,uint8_t *fb){(void)x;(void)y;(void)r;(void)gray;(void)fb;}
-static void ui_nav_draw(uint8_t *fb,int tab){(void)fb;(void)tab;}
 """+function('scroll_gesture')+'\n'+function('settings_present')+'\n'
-unit+='static void draw_size(uint8_t *fb){'+render_size+'}\n'
-unit+='static app_redraw_t choose_size(int x,int y){ui_gesture_event_t event={.x0=x,.y0=y};const ui_gesture_event_t *ev=&event;'+select_size+'return APP_REDRAW_NONE;}\n'
 unit+=r"""
 int main(void){
  app_ctx_t ctx={0};ui_gesture_event_t ev={.type=UI_GESTURE_PRESS,.x0=300,.y0=700,.x=300,.y=700};int offset=0;bool handled;
@@ -100,10 +81,7 @@ int main(void){
  }
  s_page=SETTINGS_TEXT_EDIT;assert(settings_present(&ctx,APP_REDRAW_AREA));assert(pushed.y==226&&pushed.y+pushed.height==1216&&push_mode==MODE_GL16);
  assert(!settings_present(&ctx,APP_REDRAW_PAGE));
- s_page=SETTINGS_SYSTEM_SIZE;draw_size(NULL);assert(cards==11);
- for(unsigned i=0;i<11;++i){EpdRect r=boxes[i];assert(choose_size(r.x+r.width/2,r.y+r.height/2)==APP_REDRAW_PAGE&&chosen==100+i*10);}
- assert(chosen==200&&choose_size(340,310)==APP_REDRAW_NONE&&chosen==200&&choose_size(400,970)==APP_REDRAW_NONE);
- puts("PASS: immediate bounded scroll, one update per drag, no periodic GC16 during 80 swipes, header/nav excluded across all settings lists, eleven size options through 200%");
+ puts("PASS: immediate bounded scroll, one update per drag, no periodic GC16 during 80 swipes, header/nav excluded across all settings lists; preset selection is covered by test_system_text.py");
 }
 """
 with tempfile.TemporaryDirectory() as folder:

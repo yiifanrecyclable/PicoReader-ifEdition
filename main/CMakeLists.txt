@@ -1,7 +1,6 @@
 # Pico derivative 2026-10-05: register the bounded Markdown parser component.
 # 中文：注册有界Markdown解析器；原有硬件组件不变。
 set(main_requires
-    pico_weread
     jpegdec
     app_update
     mbedtls
@@ -37,9 +36,12 @@ idf_component_register(
     SRCS
         "app_main.c"
         "ota_update.c"
+        "ota_online.c"
+        "ota_online_policy.c"
         "display.c"
         "sleep.c"
         "settings.c"
+        "power/battery_history.c"
         "app/app_loop.c"
         "app/app_registry.c"
         "ui/ui_kit.c"
@@ -65,7 +67,6 @@ idf_component_register(
         "apps/app_image.c"
         "apps/app_transfer.c"
         "apps/app_cloud.c"
-        "apps/app_weread.c"
         "apps/usb_storage.c"
         "book/book_store.c"
         "book/book_progress.c"
@@ -89,6 +90,7 @@ idf_component_register(
         "cloud/cloud_dav.c"
         "cloud/cloud_sync.c"
         "book/book_layout.c"
+        "book/reader_input.c"
         "book/markdown_table.c"
         "book/gbk.c"
         "font/ttf_font.c"
@@ -97,7 +99,7 @@ idf_component_register(
         "factory/pmu_selftest.c"
         "factory/vcom_setup.c"
     REQUIRES ${main_requires}
-    INCLUDE_DIRS "." "app" "apps" "font" "ui" "factory" "book" "cloud"
+    INCLUDE_DIRS "." "app" "apps" "font" "ui" "factory" "book" "cloud" "power"
     EMBED_FILES
         "assets/lock_4bpp.bin"
         "assets/loading_4bpp.bin"

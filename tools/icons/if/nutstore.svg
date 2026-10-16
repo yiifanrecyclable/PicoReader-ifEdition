@@ -1,5 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <!-- 坚果云原图的核心坚果轮廓重绘；移除云 / Redrawn core nut contour, without the cloud -->
-  <path d="M8.4 3.5C6.2 5.8 4.6 10.3 4.2 15.4c-.3 4.1 2.3 5.8 6.2 5.1 5.1-.8 9.4-4.3 9.4-8.1 0-3.5-2-6.6-5.3-8.3-2-1-4.4-1.4-6.1-.6Z" />
-  <path d="M8.4 3.5c4.2 2.1 8.3 6.7 10.2 11.9M17.4 5.9c.9-1.8 2.2-2.2 3.3-1.7" />
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 依官方轮廓重绘：左下饱满果身、右上包覆果帽与弯柄，分界弧线偏向果帽。/ Redrawn from the official silhouette: full lower-left body, upper-right cap and curved stem, with the seam following the cap. -->
+  <path d="M17.2 5.7 C19.3 3.7 21.1 3.1 21.4 5.8 C20.0 5.3 19.0 5.8 18.1 6.6" />
+  <path d="M8.3 4.6 C8.0 3.1 11.1 2.8 13.3 3.5 C17.8 4.8 20.3 8.4 19.9 12.8 C19.7 14.9 18.9 17.5 17.6 17.0" />
+  <path d="M8.3 4.6 C10.2 3.6 16.3 11.3 17.5 14.9 C18.2 17.0 17.2 18.1 15.2 19.1 C12.4 20.5 6.9 20.8 4.1 18.9 C1.5 17.2 3.0 11.0 5.5 7.5 C6.5 6.0 7.5 4.8 8.3 4.6 Z" />
 </svg>

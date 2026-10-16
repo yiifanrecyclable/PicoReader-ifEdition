@@ -79,7 +79,7 @@ bool read_pico_transfer_pause_for_sleep(void);
 void read_pico_transfer_resume_after_sleep(void);
 /// 跨任务复制一致状态快照。/ Copy a consistent snapshot across tasks.
 void read_pico_transfer_get_status(read_pico_transfer_status_t *out);
-/// 控制任务每500ms驱动有界连接重试与15秒超时。/ Owner task polls every 500 ms for bounded retries and a 15 s timeout.
+/// 控制任务每500ms驱动有界连接重试。/ Owner task polls every 500 ms for bounded connection retries.
 void read_pico_transfer_service_poll(void);
 /// 只读已保存SSID；未配置仍返回ESP_OK。/ Read only the saved SSID; unconfigured still returns ESP_OK.
 esp_err_t read_pico_transfer_get_saved_wifi(char ssid[33], bool *configured);
@@ -88,13 +88,13 @@ typedef struct {
     char ssid[33]; ///< 已保存的网络名称 / Saved network name
     char password[65]; ///< 明文密码，调用者使用后必须清零 / Plaintext secret; caller must erase after use
 } read_pico_transfer_wifi_backup_t;
-/// 仅供用户主动保存配置到 TF 卡；返回明文凭据，调用者负责清零。
-/// Export credentials only for user-requested TF backup; caller must erase the plaintext.
+/// 用户主动备份到TF卡时仅导出当前网络；明文凭据由调用者清零。
+/// Export only the selected network for user-requested TF backup; caller must erase the plaintext.
 esp_err_t read_pico_transfer_export_wifi_backup(read_pico_transfer_wifi_backup_t *out);
 /// 恢复前校验凭据格式；不读写设备。/ Validate a backup record without accessing the device.
 bool read_pico_transfer_wifi_backup_valid(const read_pico_transfer_wifi_backup_t *backup);
-/// 恢复单个 NVS 凭据；已运行的 WiFi 会话在下次重连时采用新配置。
-/// Restore the single NVS record; an active WiFi session adopts it on its next connection.
+/// 恢复当前网络并保留其他已记住的网络；空记录清空历史，活动会话下次重连采用新配置。
+/// Restore the selected network while retaining peers; an empty record clears history. Active sessions adopt it on reconnection.
 esp_err_t read_pico_transfer_import_wifi_backup(const read_pico_transfer_wifi_backup_t *backup);
 /// 仅热点或停止状态可遗忘；上传中拒绝。/ Forget only while AP or stopped; rejected during upload.
 esp_err_t read_pico_transfer_forget_wifi(void);
@@ -102,6 +102,8 @@ esp_err_t read_pico_transfer_forget_wifi(void);
 esp_err_t read_pico_transfer_scan_wifi(read_pico_transfer_network_t out[READ_PICO_TRANSFER_SCAN_MAX], size_t *count);
 /// 停服后保存设备输入的凭据，不自动连接；密码校验与网页相同。/ Save device-entered credentials while stopped without connecting; validation matches the webpage.
 esp_err_t read_pico_transfer_save_wifi(const char *ssid, const char *password);
+/// 选择记住的网络，无需把密码交给UI；停服时使用。/ Select a remembered network without exposing its password to the UI; service must be stopped.
+esp_err_t read_pico_transfer_select_saved_wifi(const char *ssid);
 /// 已连接 STA 时复用网络；停服时临时联网。成功返回 UTC 秒，保留原本在线状态。
 /// Reuse a connected STA or connect briefly while stopped; return UTC seconds and preserve the prior online state.
 esp_err_t read_pico_transfer_sync_time(uint32_t *utc_seconds);

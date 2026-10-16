@@ -5,3 +5,6 @@
 
 #include <stdbool.h>
 bool read_pico_sd_present(void);
+
+#include "esp_err.h"
+esp_err_t read_pico_sd_detect(bool *present);

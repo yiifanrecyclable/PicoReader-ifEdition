@@ -26,7 +26,6 @@ uint8_t epd_get_pixel(int x, int y, int width, int height, const uint8_t *fb) {
     assert(width == W && height == H && x >= 0 && x < W && y >= 0 && y < H);
     return fb[y * W + x];
 }
-uint8_t app_settings_system_contrast(void) { return 100; }
 void epd_draw_pixel(int x, int y, uint8_t color, uint8_t *fb) {
     physical(&x, &y);
     assert(x >= 0 && x < W && y >= 0 && y < H); fb[y * W + x] = color;

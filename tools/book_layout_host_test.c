@@ -70,6 +70,13 @@ static unsigned rendered_styles;
 void ttf_draw_glyph_styled_px(uint8_t *fb,int x,int y,int px,const char *text,unsigned flags,uint8_t fg,uint8_t bg){
     rendered_styles|=flags;ttf_draw_text_px(fb,x,y,px,text,EPD_DRAW_ALIGN_LEFT,fg,bg);
 }
+static void assert_slice_text(uint8_t *fb,size_t page,EpdRect rect,int px) {
+    drawn[0]=0;book_layout_draw_page(fb,page,rect,px);
+    char *expected=strdup(drawn);assert(expected);drawn[0]=0;
+    book_layout_cursor_t cursor={0};int status;unsigned units=0;
+    do{status=book_layout_draw_slice(fb,page,rect,px,&cursor);assert(status>=0&&++units<20000);}while(status==0);
+    assert(!strcmp(drawn,expected));free(expected);
+}
 int main(void) {
     EpdRect r = {0, 0, 20, 30};
     const char text[] = "甲乙丙丁戊己庚辛壬癸";
@@ -432,7 +439,7 @@ int main(void) {
     book_layout_set_markdown(true,headings,&run,1);r=(EpdRect){0,0,612,1000};
     assert(book_layout_build_blocks(md,strlen(md),md_blocks,4,r,48));drawn[0]=0;rendered_styles=0;
     book_layout_draw_page(&fb,0,r,48);assert(first_draw_px==72 && last_draw_px==48 && rendered_styles==7);
-    assert(!strcmp(drawn,"ABCDEFGH"));run.len=999;
+    assert(!strcmp(drawn,"ABCDEFGH"));assert_slice_text(&fb,0,r,48);run.len=999;
     assert(!book_layout_build_blocks(md,strlen(md),md_blocks,4,r,48));
     const char *across="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN";
     run=(text_style_t){0,strlen(across),7};r=(EpdRect){0,0,180,160};
@@ -444,6 +451,13 @@ int main(void) {
     book_layout_set_markdown(false,NULL,NULL,0);r=(EpdRect){0,0,612,1000};
     assert(book_layout_build_blocks(md,strlen(md),md_blocks,4,r,48));drawn[0]=0;
     book_layout_draw_page(&fb,0,r,48);assert(first_draw_px==56);
+    book_layout_free();
+    // 重排后旧游标不能恢复；空白、文字和样式使用同一续画实现。
+    // A cursor cannot resume across reflow; text and styles share one implementation.
+    book_layout_set_markdown(false,NULL,NULL,0);r=(EpdRect){0,0,300,300};
+    assert(book_layout_build("one\ntwo\nthree",13,r,20));assert_slice_text(&fb,0,r,20);
+    book_layout_cursor_t stale={0};assert(book_layout_draw_slice(&fb,0,r,20,&stale)==0);
+    assert(book_layout_build("other",5,r,20));assert(book_layout_draw_slice(&fb,0,r,20,&stale)==-1);
     book_layout_free();
     puts("book_layout_host_test: PASS");
 }

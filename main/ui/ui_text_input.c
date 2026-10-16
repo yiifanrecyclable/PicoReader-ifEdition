@@ -119,7 +119,7 @@ static void button(uint8_t *fb, int id, const char *label, bool dark) {
     EpdRect r=ui_text_input_key_rect(id);
     ui_fill_round_rect(fb, r, 10, dark ? UI_GRAY_BLACK : UI_GRAY_WHITE);
     ui_draw_round_rect(fb, r, 10, 0x70);
-    int px=25;while(px>18&&ui_text_fixed_width_px(px,label)>r.width-8)--px;
+    int px=ui_text_fit_px(UI_TEXT_BODY,label,r.width-8,r.height-12);
     ui_text_fixed_vc(fb, r.x+r.width/2, r.y+r.height/2, px, label,
                       EPD_DRAW_ALIGN_CENTER, dark);
 }
@@ -131,13 +131,13 @@ static size_t visible_start(const ui_text_input_t *in, int width) {
             size_t chars=0; for (size_t i=start; i<in->cursor; i=next_character(in->text,i)) ++chars;
             memset(prefix,'*',chars); prefix[chars]=0;
         } else { memcpy(prefix,in->text+start,n); prefix[n]=0; }
-        if (ui_text_fixed_width_px(30,prefix) <= width-20) break;
+        if (ui_text_fixed_width_px(ui_text_effective_px(UI_TEXT_BODY),prefix) <= width-20) break;
         start=next_character(in->text,start);
     }
     return start;
 }
 static int field_width(const char *suffix) {
-    int suffix_width = suffix && *suffix ? ui_text_fixed_width_px(21,suffix)+24 : 0;
+    int suffix_width = suffix && *suffix ? ui_text_fixed_width_px(ui_text_effective_px(UI_TEXT_CAPTION),suffix)+24 : 0;
     return 568-suffix_width;
 }
 void ui_text_input_draw(uint8_t *fb, const ui_text_input_t *in, const char *title,
@@ -145,8 +145,8 @@ void ui_text_input_draw(uint8_t *fb, const ui_text_input_t *in, const char *titl
     // 防止外部替换缓冲后留下过期光标；绘制不修改编辑状态。/ Clamp stale cursors locally without mutating on draw.
     ui_text_input_t current = *in; current.cursor = safe_cursor(in); in = &current;
     ui_clear_page(fb); ui_nav_status(fb); ui_nav_back(fb,36,79);
-    ui_text_fixed_vc(fb,342,107,32,title,EPD_DRAW_ALIGN_CENTER,false);
-    ui_text_fixed(fb,40,176,21,hint ? hint : "",EPD_DRAW_ALIGN_LEFT,false);
+    ui_text_fixed_vc(fb,342,107,ui_text_effective_px(UI_TEXT_TITLE),title,EPD_DRAW_ALIGN_CENTER,false);
+    ui_text_fixed(fb,40,176,ui_text_effective_px(UI_TEXT_CAPTION),hint ? hint : "",EPD_DRAW_ALIGN_LEFT,false);
     EpdRect field=ui_text_input_key_rect(FIELD); ui_draw_round_rect(fb,field,12,UI_GRAY_BLACK);
     int width=field_width(suffix); size_t start=visible_start(in,width), at=start, cursor_x=58;
     int x=58; char visible[1025]; size_t used=0; visible[0]=0;
@@ -154,26 +154,26 @@ void ui_text_input_draw(uint8_t *fb, const ui_text_input_t *in, const char *titl
         size_t next=next_character(in->text,at); char glyph[8]; size_t n=next-at;
         if (in->secret && !in->revealed) {glyph[0]='*';glyph[1]=0;}
         else {memcpy(glyph,in->text+at,n);glyph[n]=0;}
-        int advance=ui_text_fixed_width_px(30,glyph);
+        int advance=ui_text_fixed_width_px(ui_text_effective_px(UI_TEXT_BODY),glyph);
         size_t bytes=strlen(glyph);
         if (x+advance > 58+width || used+bytes>=sizeof(visible)) break;
         memcpy(visible+used,glyph,bytes+1);used+=bytes;x+=advance;
         at=next; if (at<=in->cursor) cursor_x=x;
     }
     // 整行一次绘制，共用基线；不能按各字母的墨迹高度逐字居中。/ Draw the entire field on one baseline instead of centering each glyph's ink independently.
-    ui_text_fixed_vc(fb,58,286,30,visible,EPD_DRAW_ALIGN_LEFT,false);
-    epd_fill_rect((EpdRect){cursor_x,262,2,48},UI_GRAY_BLACK,fb);
-    if (suffix && *suffix) ui_text_fixed_vc(fb,626,286,21,suffix,EPD_DRAW_ALIGN_RIGHT,false);
+    ui_text_fixed_vc(fb,58,286,ui_text_effective_px(UI_TEXT_BODY),visible,EPD_DRAW_ALIGN_LEFT,false);
+    epd_fill_rect((EpdRect){cursor_x,286-(ui_text_effective_px(UI_TEXT_BODY)+16)/2,2,ui_text_effective_px(UI_TEXT_BODY)+16},UI_GRAY_BLACK,fb);
+    if (suffix && *suffix) ui_text_fixed_vc(fb,626,286,ui_text_effective_px(UI_TEXT_CAPTION),suffix,EPD_DRAW_ALIGN_RIGHT,false);
     button(fb,LEFT,"‹",false); button(fb,RIGHT,"›",false);
     button(fb,SHIFT,in->uppercase?"小写":"大写",in->uppercase); button(fb,CLEAR,"清空",false);
     if (in->secret) button(fb,REVEAL,in->revealed?"隐藏密码":"显示密码",false);
     else if (in->pinyin[0]) button(fb,RAW,"输入原文",false);
     const char *message=in->notice[0]?in->notice:notice;
-    if (message && *message) ui_text_fixed(fb,40,550,21,message,EPD_DRAW_ALIGN_LEFT,false);
+    if (message && *message) ui_text_fixed(fb,40,550,ui_text_effective_px(UI_TEXT_CAPTION),message,EPD_DRAW_ALIGN_LEFT,false);
     char label[80];
     snprintf(label,sizeof(label),"%s%s%.32s",in->mode==UI_INPUT_CHINESE?"中文拼音":in->mode==UI_INPUT_SYMBOLS?(in->symbol_page?"数字 / 符号  2/2":"数字 / 符号  1/2"):in->uppercase?"英文大写":"英文小写",
         in->pinyin[0]?"  ·  ":"",in->pinyin);
-    ui_text_fixed(fb,40,644,25,label,EPD_DRAW_ALIGN_LEFT,false);
+    ui_text_fixed(fb,40,644,ui_text_effective_px(UI_TEXT_BODY),label,EPD_DRAW_ALIGN_LEFT,false);
     button(fb,PREVIOUS,"‹",false); button(fb,NEXT,"›",false);
     for (int i=0;i<5;++i) button(fb,CANDIDATE+i,
         (size_t)i<in->candidate_count?in->candidates[i]:"",i==0&&in->candidate_count);
@@ -189,7 +189,7 @@ static void place_cursor(ui_text_input_t *in, int x) {
         if(!in->text[at])break;
         size_t next=next_character(in->text,at); char glyph[8];size_t n=next-at;
         if(in->secret&&!in->revealed){glyph[0]='*';glyph[1]=0;}else{memcpy(glyph,in->text+at,n);glyph[n]=0;}
-        left+=ui_text_fixed_width_px(30,glyph);at=next;
+        left+=ui_text_fixed_width_px(ui_text_effective_px(UI_TEXT_BODY),glyph);at=next;
     } while(left<=626);
     in->cursor=best;
 }

@@ -25,6 +25,9 @@ typedef struct {
     char name[8];
     uint64_t capacity_bytes;
     uint64_t free_bytes;
+    bool space_valid;
+    uint64_t filesystem_bytes;
+    esp_err_t space_error;
     esp_err_t error;
 } read_pico_sd_info_t;
 

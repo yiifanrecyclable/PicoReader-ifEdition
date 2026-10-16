@@ -1,71 +1,57 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>if-ink OS · 下载与安装</title>
 <style>
-body{max-width:760px;margin:40px auto;padding:0 20px;font:17px/1.7 system-ui,sans-serif;color:#222;background:#fafafa}h1{font-size:30px;line-height:1.3}h2{font-size:22px;margin-top:32px}a{color:#245b88}li{margin:8px 0}code{overflow-wrap:anywhere;font-size:.9em}small{color:#555}footer{margin:36px 0;border-top:1px solid #ddd;padding-top:16px}a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid #245b88;outline-offset:3px}button{font:inherit;padding:10px 18px;cursor:pointer}summary{cursor:pointer}#flash-installer[hidden]{display:none}
-
-.hero{margin:24px auto;text-align:center}.hero img{display:block;width:100%;max-width:440px;height:auto;margin:auto;background:#fff}
+body{max-width:760px;margin:40px auto;padding:0 20px;font:17px/1.7 system-ui,sans-serif;color:#222;background:#fafafa}h1{font-size:30px;line-height:1.3}h2{font-size:22px;margin-top:32px}a{color:#245b88}li{margin:8px 0}code{overflow-wrap:anywhere;font-size:.9em}small{color:#555}footer{margin:36px 0;border-top:1px solid #ddd;padding-top:16px}a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid #245b88;outline-offset:3px}button{font:inherit;padding:10px 18px;cursor:pointer}summary{cursor:pointer}#flash-installer[hidden]{display:none}.hero{margin:24px auto;text-align:center}.hero img{display:block;width:100%;max-width:440px;height:auto;margin:auto;background:#fff}
 </style>
 </head>
 <body>
-<h1>if-ink OS</h1>
-<p>if-ink OS v0.1.0 开发中；下方为已发布的 Pico Reader IF Edition，版本保持不变。</p>
-<p>版本 <strong>0.3.3-rc83-if.8</strong> · 仅适用 Pico RDP-G01-W</p>
-<p>基于 <strong>Pico Reader 0.3.3-rc83</strong> 的独立衍生版本，增加坚果云同步和 Markdown 阅读，并调整首页与操作界面。if.8 新增 Markdown 表格显示，支持自动换行、续页表头与宽表展开。</p>
-<p><a href="https://github.com/yiifanrecyclable/if-ink-OS">IF 项目源码</a> · <a href="https://github.com/yiifanrecyclable/if-ink-OS/tree/0.3.3-rc83-if.8">if.8 对应源码与构建说明</a> · <a href="https://github.com/yiifanrecyclable/if-ink-OS/archive/refs/tags/0.3.3-rc83-if.8.zip">源码 ZIP</a> · <a href="https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/0.3.3-rc83-if.8">版本页面</a></p>
-<figure class="hero"><img src="./images/if-edition-home.png" width="1300" height="1800" alt="Pico Reader IF Edition 真机首页：日期格言、阅读记录与最近阅读" fetchpriority="high" decoding="async"></figure>
-<h2>在线安装</h2>
-<p>在线安装无需安装 Python 或刷机工具。请先备份重要数据；首次从原版迁移会重写分区表，原版内置存储数据不保证保留。</p>
+<h1>if-ink OS <small>v0.1.1</small></h1>
+<p>支持 Markdown 文档的 Pico 固件。仅适用 <strong>Pico RDP-G01-W</strong>。</p>
+<p>EPUB / TXT / Markdown 阅读、坚果云同步、表格显示、日期格言首页与阅读控制面板。基于 Pico Reader rc83，选择性采用后续 rc88 / rc95 的阅读、刷新与存储改进。</p>
+<p><a href="https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.1.1">版本页面</a> · <a href="https://github.com/yiifanrecyclable/if-ink-OS/tree/v0.1.1">对应源码与构建说明</a> · <a href="if-ink-OS-v0.1.1-source.zip" download>源码 ZIP</a></p>
+<figure class="hero"><img src="./images/if-edition-home.png" width="1300" height="1800" alt="Pico 阅读器真机首页：日期格言、阅读记录与最近阅读（早期 IF 版本示意）" fetchpriority="high" decoding="async"><figcaption><small>真机首页示意，早期 IF 版本；当前界面以 v0.1.1 为准。</small></figcaption></figure>
+<h2>首次安装：在线刷机</h2>
+<p>无需安装 Python 或刷机工具。首次从原系统迁移会重写分区表，请先备份重要数据。</p>
 <ol>
-<li>在电脑 Chrome 或 Edge 中打开本页。</li>
-<li>唤醒 Pico，用可传数据的 USB-C 线连接电脑。退出 USB 读卡模式，关闭其他占用串口的工具。</li>
-<li>点击下方连接按钮，选择 Pico 对应的串口。</li>
-<li>按弹窗提示确认安装，保持连接，等待完成并重启。随后核对当前版本为 <code>0.3.3-rc83-if.8</code>。</li>
+<li>使用电脑 Chrome 或 Edge 打开本页。</li>
+<li>唤醒 Pico，通过 USB 数据线连接电脑，退出 USB 读卡模式并关闭其他占用串口的程序。</li>
+<li>点击连接按钮，选择 Pico 对应的串口，按提示确认安装。</li>
+<li>保持连接，等待写入、校验和重启，在“设置 → 固件信息”核对版本 <strong>0.1.1</strong>。</li>
 </ol>
 <p id="flash-status" role="status" aria-live="polite">正在加载在线安装按钮…</p>
-<esp-web-install-button id="flash-installer" hidden manifest="./webflash/0.3.3-rc83-if.8/manifest.json"><button slot="activate" type="button">连接 Pico，安装固件</button></esp-web-install-button>
-<p><small>在线安装使用 <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>。</small></p>
+<esp-web-install-button id="flash-installer" hidden manifest="./webflash/0.1.1/manifest.json"><button slot="activate" type="button">连接 Pico，安装固件</button></esp-web-install-button>
+<p><small>使用 <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>。安装器不执行整片擦除；不要额外添加擦除命令。</small></p>
+<h2>已有 IF / if-ink OS：TF 卡升级</h2>
+<ol>
+<li>下载下方 TF 升级包，完整关机后取卡。</li>
+<li>解压，将 <code>Pico-IF-update.bin</code> 复制到 TF 卡根目录，替换旧同名更新文件，安全弹出并插回设备。</li>
+<li>开机，进入“设置 → 固件信息 → 本地升级”，核对 <strong>0.1.1</strong> 后确认；旧 IF 系统中入口为“系统升级”。</li>
+</ol>
+<p>保持充足电量或 USB 供电。升级只写应用槽，不改分区。原系统的本地升级不接受 IF 镜像，首次请在线安装。</p>
 <h2>下载</h2>
-<p><a href="表格阅读示例.md" download>Markdown 表格示例</a> — 下载后放入 TF 卡的 markdown 文件夹阅读。</p>
 <ul>
-<li><a href="Pico-IF-0.3.3-rc83-if.8-usb.zip" download>USB 完整安装包</a> — 手动安装备用。</li>
-<li><a href="Pico-IF-0.3.3-rc83-if.8-tf.zip" download>TF 更新包</a> — 已安装 IF 的设备使用。</li>
-<li><a href="Pico-IF-0.3.3-rc83-if.8-resources.zip" download>TF 字体与拼音词库</a> — 首次安装准备，后续已有资源无需重装。</li>
-<li><a href="安装说明.md">完整中文安装说明</a> · <a href="SHA256SUMS">下载包 SHA256</a> · <a href="许可证.zip" download>全部随包许可声明</a></li>
+<li><a href="if-ink-OS-v0.1.1-tf.zip" download>TF 卡升级包</a> — 已有 IF / if-ink OS 使用。</li>
+<li><a href="if-ink-OS-v0.1.1-usb.zip" download>离线 USB 刷机包</a> — 本地四段固件及参数；手动写入需提前准备 Python / esptool。</li>
+<li><a href="if-ink-OS-v0.1.1-resources.zip" download>TF 字体与拼音词库</a> — 首次安装准备，已有资源无需重装。</li>
+<li><a href="表格阅读示例.md" download>Markdown 表格示例</a> · <a href="安装说明.md">详细安装说明</a> · <a href="SHA256SUMS">SHA256 校验值</a></li>
+<li><a href="if-ink-OS-v0.1.1-source.zip" download>对应源码与构建材料</a> · <a href="许可证.zip" download>完整许可包</a></li>
 </ul>
-<p><a href="Pico-IF-0.3.3-rc83-if.8-source.zip" download>该版本对应源码与构建说明</a></p>
-<details>
-<summary>手动安装（备用）</summary>
-<h2>USB 完整安装</h2>
-<ol>
-<li>备份 TF 卡上的书籍、文档和设置，解压 USB 安装包。首次迁移会重写分区表，原版内置存储数据不保证保留；不要格式化 TF 卡或擦除整片 Flash。</li>
-<li>电脑安装 Python 3 和 esptool，唤醒 Pico 后用 USB 数据线连接。退出 USB 读卡模式并关闭其他串口工具。</li>
-<li>在解压后的包目录打开终端，将下面的 <code>PORT</code> 换成实际串口名。Mac 通常为 <code>/dev/cu.usbmodem…</code>，Windows 在设备管理器查看 <code>COM…</code>。</li>
-</ol>
-<p>Mac 安装工具：<code>python3 -m pip install esptool==5.4.0</code></p>
-<p>Mac 写入：</p>
-<pre style="white-space:pre-wrap"><code>python3 -m esptool --chip esp32s3 --port PORT --baud 460800 --before default-reset --after hard-reset write-flash @flash_args</code></pre>
-<p>Windows 使用同一命令，将 <code>python3</code> 换成 <code>py</code>。连接不稳定可将波特率改为 <code>115200</code>。保持包内目录结构，勿添加擦除命令；本机型没有 BOOT/RESET 物理按键。</p>
-<p>等待四段写入与校验完成，重启后检查当前版本为 <code>0.3.3-rc83-if.8</code>，确认界面可响应。<code>flash_args</code> 来自同版构建：0x0 引导器、0x8000 分区表、0xd10000 OTA 初始数据、0x10000 应用，dio / 80m / 16MB。</p>
+<p>资源包内 <code>TF卡资源</code> 的 <code>fonts</code> 和 <code>system</code> 合并到卡根目录；图书放 <code>books</code>，文档放 <code>markdown</code>。旧自定义目录需自行整理到标准目录。</p>
+<p>坚果云账号、应用密码与同步文件夹在设备设置中填写；文件页选择内容下载。Obsidian 推送插件为独立项目，可联系作者获取。</p>
+<p>本版已接入独立在线升级源，后续可在“设置 → 固件信息 → 在线升级”检查更新；旧版本需先通过 TF 卡升级到包含更新器的版本。</p>
+<details><summary>手动 USB 安装（备用）</summary>
+<p>准备 Python 3 与 esptool 5.4.0，安装工具需联网。解压 USB 包，在包目录打开终端，将 PORT 换成实际串口（Mac 常见 <code>/dev/cu.usbmodem…</code>，Windows 为 <code>COM…</code>）。</p>
+<pre style="white-space:pre-wrap"><code>python3 -m pip install esptool==5.4.0
+python3 -m esptool --chip esp32s3 --port PORT --baud 460800 --before default-reset --after hard-reset write-flash @flash_args</code></pre>
+<p>Windows 将 <code>python3</code> 换成 <code>py</code>。连接不稳定改为 <code>--baud 115200</code>。保留目录结构，不要格式化 TF 卡或擦除整片 Flash。本机型没有 BOOT/RESET 物理按键。</p>
 </details>
-<h2>后续 IF 更新：TF 卡</h2>
-<ol>
-<li>完整关机后取卡，用读卡器接电脑，解压 TF 更新包。</li>
-<li>把 <code>Pico-IF-update.bin</code> 复制到 TF 卡根目录，替换旧同名文件，安全弹出后插回 Pico。</li>
-<li>开机并保持足够电量或 USB 供电。进入<strong>设置 → 升级和恢复 → 系统升级</strong>，核对待安装版本，按提示安装并等待重启。</li>
-</ol>
-<p>原版 Pico Reader 的 TF 升级不接受 IF 镜像，首次请使用上方在线安装或备用 USB 完整安装。</p>
-<h2>字体、词库与同步</h2>
-<p>首次解压资源包，将 <code>TF卡资源</code> 内的 <code>fonts</code> 和 <code>system</code> 文件夹合并到卡根目录。最终应有 <code>fonts/PicoSans-Medium.ttf</code> 和 <code>system/ime/pinyin.ifdict</code>，并保留随附许可文件。资源包只含固定授权标准字体和离线词库。</p>
-<p>在文件页进入坚果云同步，填写自己的账号、应用密码及阅读目录，刷新后选择文档下载，再从内容页离线阅读。不要公开密码或含凭据的设置备份。下载包不含账号配置。</p>
-<p><small>应用镜像 SHA256：<code>cfc4639b227a5dce9bba131e7d96abc1ee13ff6a893609648306e0c0ada472f3</code></small></p>
+<p><small>应用镜像 SHA256：<code>32ac79f7500fe478d506775c47f5db06819bdcb3c3993fca9e72a95a2802152d</code></small></p>
 <footer>
-<p>感谢原作者。<a href="https://wegooo-cell.github.io/read-pico-reader/">Pico Reader 原作者主页</a> · <a href="https://github.com/wegooo-cell/read-pico-reader">原作者源码仓库</a></p>
-<p><small>IF 是独立衍生版本，不是原作者或 MindReset 官方发布。保留上游版权、<a href="LICENSE">Apache-2.0</a> 与各组件许可；epdiy 使用 LGPL-3.0-or-later。<a href="NOTICE.txt">来源说明</a> · <a href="许可证.zip">完整许可包</a></small></p>
+<p>感谢原作者：<a href="https://wegooo-cell.github.io/read-pico-reader/">Pico Reader 原作者主页</a> · <a href="https://github.com/wegooo-cell/read-pico-reader">原作者源码仓库</a>。</p>
+<p><small>if-ink OS 是独立衍生版本，不是原作者或 MindReset 官方发布。保留上游版权及各组件许可；主体 <a href="LICENSE">Apache-2.0</a>，epdiy 为 LGPL-3.0-or-later。<a href="NOTICE.txt">来源说明</a> · <a href="许可证.zip">完整许可包</a>。</small></p>
 </footer>
-<script type="module" src="./webflash/installer.js?v=if.8"></script>
-</body>
-</html>
+<script type="module" src="./webflash/installer.js?v=0.1.1"></script>
+</body></html>

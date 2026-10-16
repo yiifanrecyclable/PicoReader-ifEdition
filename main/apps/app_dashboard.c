@@ -60,8 +60,21 @@ static document_entry_t s_recent_documents[HOME_DOCUMENT_COUNT];
 static size_t s_recent_document_count;
 #define HOME_DOCUMENT_X 272
 #define HOME_DOCUMENT_WIDTH (648 - HOME_DOCUMENT_X)
-#define HOME_DOCUMENT_Y 792
-#define HOME_DOCUMENT_ROW_H 81
+typedef struct {
+    int heat_title, week_y, grid_y, col_x, col_step, row_step, month_x;
+    int recent_rule, recent_title, content_y, content_end, rows, row_height;
+} home_geometry_t;
+static home_geometry_t home_geometry(void) {
+    home_geometry_t g={0};
+    // 日历固定位置和标准字级；七列格子本身以屏幕为中心。/ Fixed calendar metrics; center the seven-cell array on the screen.
+    g.heat_title=410;g.week_y=452;g.grid_y=478;
+    g.col_step=62;g.col_x=UI_LOCK_WIDTH/2-3*g.col_step;g.month_x=g.col_x-42;
+    g.row_step=52;g.recent_rule=706;g.recent_title=740;
+    g.content_y=790;g.content_end=UI_NAV_TOP-16;
+    g.rows=app_settings_system_font_size()==160?3:4;
+    g.row_height=(g.content_end-g.content_y)/g.rows;
+    return g;
+}
 typedef struct {
     char path[BOOK_STORE_PATH_MAX];
     char title[128];
@@ -292,20 +305,19 @@ static void fit(char *title, int px, int width) {
     }
 }
 
-// 两列标题最多两行，字体缩放不允许文字越过相邻列；省略保留UTF8边界。
-// Limit captions to two lines and bound scaled type within each column; truncate on UTF-8 boundaries.
+// 两列标题单行截断，不加提示；注释可以两行，保留UTF8边界。
+// Keep titles on one silently truncated line; captions may wrap to two lines at UTF-8 boundaries.
 typedef struct {
     char lines[2][256];
-    int px, count;
+    int px, count, line_height;
 } recent_title_layout_t;
 
-static recent_title_layout_t recent_title_layout(const char *title, int width) {
-    recent_title_layout_t layout = {.px = ui_text_effective_px(24)};
-    if (layout.px > 28) layout.px = 28;
+static recent_title_layout_t recent_title_layout_role(const char *title, int width, int role, int max_lines) {
+    recent_title_layout_t layout = {.px = ui_text_effective_px(role),.line_height=ui_text_line_height(role)};
     int px = layout.px;
     char (*lines)[256] = layout.lines;
     const char *next = title;
-    for (int row = 0; row < 2; ++row) {
+    for (int row = 0; row < max_lines; ++row) {
         size_t used = 0;
         while (*next && used + 5 < sizeof(lines[row])) {
             unsigned char ch = (unsigned char)*next;
@@ -318,23 +330,16 @@ static recent_title_layout_t recent_title_layout(const char *title, int width) {
             next += bytes;
         }
     }
-    if (*next) {
-        size_t n = strlen(lines[1]);
-        while (n && ui_text_fixed_width_px(px, lines[1]) + ui_text_fixed_width_px(px, "…") > width) {
-            do { --n; } while (n && ((unsigned char)lines[1][n] & 0xc0) == 0x80);
-            lines[1][n] = 0;
-        }
-        strlcat(lines[1], "…", sizeof(lines[1]));
-    }
     layout.count = lines[1][0] ? 2 : lines[0][0] ? 1 : 0;
     return layout;
 }
 
+static recent_title_layout_t recent_title_layout(const char *title,int width) { return recent_title_layout_role(title,width,UI_TEXT_BODY,1); }
 static int draw_recent_title_layout(uint8_t *fb, const recent_title_layout_t *layout, int x, int y, bool centered) {
     for (int row = 0; row < layout->count; ++row)
-        ui_text_fixed_vc(fb, x, y + row * (layout->px + 4), layout->px, layout->lines[row],
+        ui_text_fixed_vc(fb, x, y+row*layout->line_height, layout->px, layout->lines[row],
                          centered ? EPD_DRAW_ALIGN_CENTER : EPD_DRAW_ALIGN_LEFT, false);
-    return y + (layout->count > 0 ? layout->count - 1 : 0) * (layout->px + 4) + (layout->px + 1) / 2;
+    return y+(layout->count>0?layout->count-1:0)*layout->line_height+layout->line_height/2;
 }
 
 static int draw_recent_title(uint8_t *fb, const char *title, int x, int y, int width, bool centered) {
@@ -364,7 +369,7 @@ static void draw_cover(uint8_t *fb, const home_book_t *item, EpdRect box) {
             for (int x = 0; x < box.width; ++x) {
                 int sx = (int)(crop.x + (uint64_t)(unsigned)x * crop.width / box_width);
                 int sy = (int)(crop.y + (uint64_t)(unsigned)y * crop.height / box_height);
-                const uint8_t gray = ui_contrast_gray(item->cover[sy * BOOK_COVER_W + sx]);
+                const uint8_t gray = ui_gray_level(item->cover[sy * BOOK_COVER_W + sx]);
                 epd_draw_pixel(box.x + x, box.y + y,
                                ui_image_dither_gray(gray, box.x + x, box.y + y), fb);
             }
@@ -436,53 +441,51 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     (void)ctx;
     ui_clear_page(fb);
     // 最近阅读分左右列，图书封面窄列、文档列表宽列。/ Recent reads use a narrow cover column and a wide document column.
-    epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_NAV_TOP}, 0xf0, fb);
+    epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_NAV_TOP}, UI_GRAY_WHITE, fb);
     ui_nav_status(fb);
     draw_home_banner(fb);
-    epd_fill_rect((EpdRect){36, 700, 612, 2}, 0x68, fb);
-    ui_text_vc(fb, 36, 737, 29, "最近阅读", EPD_DRAW_ALIGN_LEFT, false);
-    home_book_t *featured = s_current.path[0] ? &s_current : &s_recent[0];
-    if (featured->path[0]) {
-        draw_cover(fb, featured, (EpdRect){36, HOME_DOCUMENT_Y, 172, 234});
-        unsigned pct = featured->has_progress ? featured->progress.pct : 0;
-        if (pct > 100) pct = 100;
-        draw_recent_progress(fb, 36, HOME_DOCUMENT_Y + 246, 172, pct);
-        int bottom = draw_recent_title(fb, featured->title, 122, HOME_DOCUMENT_Y + 266, 172, true);
-        char detail[48];
-        snprintf(detail, sizeof(detail), "阅读进度%u%%", pct);
-        int px = ui_text_effective_px(18);
-        if (px > 20) px = 20;
-        ui_text_fixed_vc(fb, 122, bottom + 18, px, detail, EPD_DRAW_ALIGN_CENTER, false);
-    } else {
-        draw_recent_title(fb, "暂无阅读图书", 122, HOME_DOCUMENT_Y + 126, 172, true);
+    home_geometry_t g=home_geometry();
+    epd_fill_rect((EpdRect){36,g.recent_rule,612,2},0x68,fb);
+    ui_text_vc(fb,36,g.recent_title,UI_TEXT_TITLE,"最近阅读",EPD_DRAW_ALIGN_LEFT,false);
+    ui_text_vc(fb,648,g.recent_title,UI_TEXT_CAPTION,"markdown文档",EPD_DRAW_ALIGN_RIGHT,false);
+    home_book_t *featured=s_current.path[0]?&s_current:&s_recent[0];
+    if(featured->path[0]) {
+        unsigned pct=featured->has_progress?featured->progress.pct:0;if(pct>100)pct=100;
+        recent_title_layout_t title=recent_title_layout(featured->title,172);
+        char detail[48];snprintf(detail,sizeof(detail),"阅读进度%u%%",pct);
+        recent_title_layout_t caption=recent_title_layout_role(detail,172,UI_TEXT_CAPTION,2);
+        int title_h=title.count*title.line_height;
+        int caption_h=caption.count*caption.line_height;
+        int cover_y=g.content_y+24;
+        int cover_h=g.content_end-cover_y-title_h-caption_h-30;
+        if(cover_h>234)cover_h=234;
+        if(cover_h<48)cover_h=48;
+        int cover_w=cover_h*176/240;if(cover_w>172)cover_w=172;
+        draw_cover(fb,featured,(EpdRect){36+(172-cover_w)/2,cover_y,cover_w,cover_h});
+        draw_recent_progress(fb,36,cover_y+cover_h+8,172,pct);
+        int title_y=cover_y+cover_h+20;
+        draw_recent_title_layout(fb,&title,122,title_y+title.line_height/2,true);
+        draw_recent_title_layout(fb,&caption,122,title_y+title_h+10+caption.line_height/2,true);
+    } else draw_recent_title(fb,"暂无阅读图书",122,g.content_y+(g.content_end-g.content_y)/2,172,true);
+    // 竖线起点随标题的实际墨迹上沿对齐。/ Align the divider start with the title's actual ink top.
+    int title_above=0,title_below=0;
+    ui_text_fixed_measure_px(ui_text_effective_px(UI_TEXT_TITLE),"最近阅读",&title_above,&title_below);
+    int divider_top=g.recent_title+(title_above-title_below)/2-title_above;
+    epd_fill_rect((EpdRect){240,divider_top,2,g.content_y+g.rows*g.row_height+1-divider_top},0x68,fb);
+    for(int i=0;i<=g.rows;++i)epd_fill_rect((EpdRect){HOME_DOCUMENT_X,g.content_y+i*g.row_height,HOME_DOCUMENT_WIDTH,1},0x88,fb);
+    for(size_t i=0;i<s_recent_document_count && i<(size_t)g.rows;++i) {
+        int y=g.content_y+(int)i*g.row_height;char name[256];copy_title(name,sizeof(name),s_recent_documents[i].name);
+        size_t n=strlen(name);if(n>=3)name[n-3]=0;
+        recent_title_layout_t layout=recent_title_layout_role(name,HOME_DOCUMENT_WIDTH-36,UI_TEXT_BODY,1);
+        int title_h=layout.count*layout.line_height;
+        int top=y+(g.row_height-title_h-10)/2;
+        draw_recent_title_layout(fb,&layout,HOME_DOCUMENT_X,top+layout.line_height/2,false);
+        draw_recent_progress(fb,HOME_DOCUMENT_X,top+title_h+6,HOME_DOCUMENT_WIDTH-36,s_recent_documents[i].pct);
+        ui_text_vc(fb,646,y+g.row_height/2,UI_TEXT_BODY,"›",EPD_DRAW_ALIGN_RIGHT,false);
     }
-    // 保留完整四行，空行也有上下分隔；与图书列间距加宽并增加细竖线。
-    // Reserve four ruled rows even when empty, with a wider gutter and a thin vertical divider.
-    epd_fill_rect((EpdRect){240, HOME_DOCUMENT_Y, 1, HOME_DOCUMENT_COUNT * HOME_DOCUMENT_ROW_H + 1}, 0xc0, fb);
-    for (int i = 0; i <= HOME_DOCUMENT_COUNT; ++i)
-        epd_fill_rect((EpdRect){HOME_DOCUMENT_X, HOME_DOCUMENT_Y + i * HOME_DOCUMENT_ROW_H,
-                               HOME_DOCUMENT_WIDTH, 1}, 0x88, fb);
-    for (size_t i = 0; i < s_recent_document_count; ++i) {
-        int y = HOME_DOCUMENT_Y + (int)i * HOME_DOCUMENT_ROW_H;
-        char name[256];
-        copy_title(name, sizeof(name), s_recent_documents[i].name);
-        size_t n = strlen(name);
-        if (n >= 3) name[n - 3] = 0;
-        recent_title_layout_t layout = recent_title_layout(name, HOME_DOCUMENT_WIDTH - 36);
-        // 标题一至两行及下方横条作为一组，在固定行内垂直居中。
-        // Center the one/two-line caption and its following bar as one group within the fixed row.
-        int title_height = layout.count * layout.px + (layout.count > 0 ? layout.count - 1 : 0) * 4;
-        int top = y + (HOME_DOCUMENT_ROW_H - title_height - 8 - 4) / 2;
-        draw_recent_title_layout(fb, &layout, HOME_DOCUMENT_X, top + layout.px / 2, false);
-        draw_recent_progress(fb, HOME_DOCUMENT_X, top + title_height + 8,
-                             HOME_DOCUMENT_WIDTH - 36, s_recent_documents[i].pct);
-        ui_text_vc(fb, 646, y + 40, 22, "›", EPD_DRAW_ALIGN_RIGHT, false);
-    }
-    if (!s_recent_document_count)
-        draw_recent_title(fb, "暂无阅读文档", HOME_DOCUMENT_X, HOME_DOCUMENT_Y + 40, HOME_DOCUMENT_WIDTH - 36, false);
-
-    epd_fill_rect((EpdRect){36, 380, 612, 2}, 0x68, fb);
-    ui_text_vc(fb, 36, 406, 29, "阅读记录", EPD_DRAW_ALIGN_LEFT, false);
+    if(!s_recent_document_count)draw_recent_title(fb,"暂无阅读文档",HOME_DOCUMENT_X,g.content_y+g.row_height/2,HOME_DOCUMENT_WIDTH-36,false);
+    epd_fill_rect((EpdRect){36,380,612,2},0x68,fb);
+    ui_text_vc(fb,36,g.heat_title,UI_TEXT_TITLE,"阅读记录",EPD_DRAW_ALIGN_LEFT,false);
     uint64_t sum = 0;
     if (s_reading_days_valid) {
         // 只汇总当前周（末行）从周一到今天，保留四周热力图。
@@ -495,20 +498,20 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     char value[64];
     snprintf(value, sizeof(value), "本周已读%llu小时%llu分",
              (unsigned long long)(sum / 3600), (unsigned long long)(sum / 60 % 60));
-    int week_px=ui_text_effective_px(20);if(week_px>28)week_px=28;
-    ui_text_fixed_vc(fb, 648, 406, week_px, s_reading_days_valid ? value : "未设置日期", EPD_DRAW_ALIGN_RIGHT, false);
+    int week_px=ui_text_effective_px(UI_TEXT_CAPTION);
+    ui_text_fixed_vc(fb, 648, g.heat_title, week_px, s_reading_days_valid ? value : "未设置日期", EPD_DRAW_ALIGN_RIGHT, false);
     if (!s_reading_days_valid) {
         ui_text_vc(fb, 342, 582, 22, "完成日期与时间设置后显示阅读记录", EPD_DRAW_ALIGN_CENTER, false);
     } else {
         static const char *const weekdays[] = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
-        int calendar_px=ui_text_effective_px(18);if(calendar_px>24)calendar_px=24;
+        int calendar_px=34;
         for (int col = 0; col < 7; ++col)
-            ui_text_fixed_vc(fb, 170 + col * 56, 454, calendar_px, weekdays[col], EPD_DRAW_ALIGN_CENTER, false);
+            ui_text_fixed_vc(fb, g.col_x + col * g.col_step, g.week_y, calendar_px, weekdays[col], EPD_DRAW_ALIGN_CENTER, false);
         for (int row = 0; row < 4; ++row) {
             int month = home_heatmap_row_month(s_reading_end_day, row);
-            if (month >= 0) ui_text_fixed_vc(fb, 112, 498 + row * 52, calendar_px, home_months[month], EPD_DRAW_ALIGN_RIGHT, false);
+            if (month >= 0) ui_text_fixed_vc(fb, g.month_x, g.grid_y+22+row*g.row_step, calendar_px, home_months[month], EPD_DRAW_ALIGN_RIGHT, false);
             for (int col = 0; col < 7; ++col) {
-                EpdRect cell = {148 + col * 56, 476 + row * 52, 44, 44};
+                EpdRect cell = {g.col_x-22+col*g.col_step, g.grid_y+row*g.row_step, 44, 44};
                 int index = home_heatmap_history_index(s_reading_end_day, row, col);
                 uint8_t gray=index>=0?home_heatmap_gray(s_reading_days[index]):0xff;
                 if (index < 0 || !s_reading_days[index]) {
@@ -536,7 +539,7 @@ static bool present(app_ctx_t *ctx, app_redraw_t redraw) {
     if (redraw == APP_REDRAW_AREA) guard_draw_result(ctx->hl, update_display_area_with(ctx->hl, &E0470_WAVEFORM, MODE_GL16, s_area));
     else if (redraw == APP_REDRAW_FULL || s_home_force_full_once) {
         s_home_force_full_once = false;
-        guard_draw_result(ctx->hl, update_display_full(ctx->hl));
+        guard_draw_result(ctx->hl, update_display_image_gray(ctx->hl));
     }
     else guard_draw_result(ctx->hl, update_display_fast_page(ctx->hl));
     return true;
@@ -617,7 +620,7 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
     // 只更新续读卡片，不再逐本刷新首页。/ Update only the current-read card, never flash covers one by one.
     if (cover_changed) {
         render(ctx, ctx->fb);
-        s_area = (EpdRect){36, 768, 612, UI_NAV_TOP - 768};
+        int top=home_geometry().content_y;s_area=(EpdRect){36,top,612,UI_NAV_TOP-top};
         return APP_REDRAW_AREA;
     }
     return APP_REDRAW_NONE;
@@ -630,14 +633,15 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     if (ev->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
     int tab = ui_nav_hit(ev->x0, ev->y0);
     if (tab >= 0) { ui_nav_request(ctx, tab); return APP_REDRAW_NONE; }
-    if (ev->x0 >= HOME_DOCUMENT_X && ev->x0 < 648 && ev->y0 >= HOME_DOCUMENT_Y &&
-        ev->y0 < HOME_DOCUMENT_Y + HOME_DOCUMENT_COUNT * HOME_DOCUMENT_ROW_H) {
-        size_t i = (ev->y0 - HOME_DOCUMENT_Y) / HOME_DOCUMENT_ROW_H;
+    home_geometry_t g=home_geometry();
+    if (ev->x0 >= HOME_DOCUMENT_X && ev->x0 < 648 && ev->y0 >= g.content_y &&
+        ev->y0 < g.content_y + g.rows*g.row_height) {
+        size_t i = (ev->y0-g.content_y)/g.row_height;
         if (i < s_recent_document_count && app_book_request_open_from_home(s_recent_documents[i].path))
             ui_nav_request(ctx, 1);
         return APP_REDRAW_NONE;
     }
-    if (ev->x0 >= 36 && ev->x0 < 208 && ev->y0 >= HOME_DOCUMENT_Y && ev->y0 < UI_NAV_TOP) {
+    if (ev->x0 >= 36 && ev->x0 < 208 && ev->y0 >= g.content_y && ev->y0 < UI_NAV_TOP) {
         home_book_t *featured = s_current.path[0] ? &s_current : &s_recent[0];
         if (featured->path[0] && app_book_request_open_from_home(featured->path)) ui_nav_request(ctx, 1);
         return APP_REDRAW_NONE;

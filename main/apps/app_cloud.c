@@ -11,11 +11,15 @@
 #include "ui_kit.h"
 #include "ui_nav.h"
 #include "ui_menu.h"
+#include "display.h"
+#include "e0470_epaper_waveform.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
 static unsigned s_cloud_page, s_cloud_seen;
 static int64_t s_cloud_last_draw;
+static int cloud_row_height(void) { return ui_list_row_height(true); }
+static unsigned cloud_rows(void) { return (unsigned)ui_list_visible_rows(244,948,cloud_row_height()); }
 static void cloud_fit(char *text, int px, int width) {
     while (*text && ui_text_fixed_width_px(ui_text_effective_px(px), text) > width) {
         size_t n = strlen(text) - 1;
@@ -89,16 +93,16 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             if (cloud_get_entry(i, &entry) && entry.selected)
                 ++selected;
         }
-        for (unsigned row = 0; row < 8; ++row) {
-            unsigned i = s_cloud_page * 8 + row;
+        for (unsigned row = 0; row < cloud_rows(); ++row) {
+            unsigned i = s_cloud_page * cloud_rows() + row;
             cloud_entry_t entry;
             if (!cloud_get_entry(i, &entry))
                 break;
-            int y = 244 + row * 88;
+            int y = 244 + row * cloud_row_height();
             char name[241];
             snprintf(name, sizeof(name), "%s", entry.name);
             cloud_fit(name, 23, 510);
-            ui_text(fb, 44, y + 10, 23, name, EPD_DRAW_ALIGN_LEFT, false);
+            ui_text_vc(fb, 44, y+12+ui_text_line_height(UI_TEXT_BODY)/2, UI_TEXT_BODY, name, EPD_DRAW_ALIGN_LEFT, false);
             char detail[120];
             if (entry.error[0])
                 snprintf(detail, sizeof(detail), "%s", entry.error);
@@ -113,15 +117,15 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
                 snprintf(detail, sizeof(detail), "日期未知 · %llu KB",
                          (unsigned long long)(entry.bytes / 1024));
             cloud_fit(detail, 18, 510);
-            ui_text(fb, 44, y + 49, 18, detail, EPD_DRAW_ALIGN_LEFT, false);
-            EpdRect box = {590, y + 25, 34, 34};
+            ui_text_fixed_vc(fb, 44, y+12+ui_text_line_height(UI_TEXT_BODY)+ui_text_line_height(UI_TEXT_CAPTION)/2, ui_text_effective_px(UI_TEXT_CAPTION), detail, EPD_DRAW_ALIGN_LEFT, false);
+            EpdRect box = {590, y+(cloud_row_height()-34)/2, 34, 34};
             ui_draw_round_rect(fb, box, 7, entry.selectable ? 0x70 : 0xc0);
             if (entry.selected) {
                 ui_fill_round_rect(fb, box, 7, UI_GRAY_BLACK);
-                epd_draw_line(598, y + 42, 605, y + 48, UI_GRAY_WHITE, fb);
-                epd_draw_line(605, y + 48, 618, y + 33, UI_GRAY_WHITE, fb);
+                epd_draw_line(598, y+cloud_row_height()/2, 605, y+cloud_row_height()/2+6, UI_GRAY_WHITE, fb);
+                epd_draw_line(605, y+cloud_row_height()/2+6, 618, y+cloud_row_height()/2-9, UI_GRAY_WHITE, fb);
             }
-            ui_hairline(fb, y + 86, 44, 596, 0xc0);
+            ui_hairline(fb, y+cloud_row_height()-2, 44, 596, 0xc0);
         }
         char action[64];
         snprintf(action, sizeof(action), "同步所选（%u）", selected);
@@ -130,15 +134,23 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             char result[160];
             snprintf(result,sizeof(result),"%s",status.message);
             cloud_fit(result,19,612);
-            ui_text_fixed_vc(fb,342,1096,19,result,EPD_DRAW_ALIGN_CENTER,false);
+            ui_text_fixed_vc(fb,342,1096,ui_text_effective_px(UI_TEXT_CAPTION),result,EPD_DRAW_ALIGN_CENTER,false);
         }
         if (status.count) {
             char page[32];
-            snprintf(page, sizeof(page), "%u / %u", s_cloud_page + 1, (status.count + 7) / 8);
+            snprintf(page, sizeof(page), "%u / %u", s_cloud_page + 1, (status.count + cloud_rows()-1) / cloud_rows());
             ui_text_vc(fb, 648, 964, 18, page, EPD_DRAW_ALIGN_RIGHT, false);
         }
     }
     ui_nav_draw(fb, 2);
+}
+// 同步消息不是页面切换；灰阶差分只更新改变的像素，不累积导航清屏次数。
+// Sync messages are not navigation; gray differences update changed pixels without counting navigation cleanups.
+static bool present(app_ctx_t *ctx,app_redraw_t redraw){
+    if(redraw!=APP_REDRAW_PAGE&&redraw!=APP_REDRAW_AREA)return false;
+    render(ctx,ctx->fb);
+    guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,(EpdRect){0,0,UI_LOCK_WIDTH,UI_LOCK_HEIGHT}));
+    return true;
 }
 static void enter(app_ctx_t *ctx) {
     s_cloud_page = s_cloud_seen = 0;
@@ -153,11 +165,11 @@ static app_redraw_t tick(app_ctx_t *ctx) {
     read_pico_transfer_service_poll();
     cloud_status_t status;
     cloud_get_status(&status);
-    if (status.revision == s_cloud_seen || ctx->now_ms - s_cloud_last_draw < 700)
+    if (status.revision == s_cloud_seen || ctx->now_ms - s_cloud_last_draw < 1000)
         return APP_REDRAW_NONE;
     s_cloud_seen = status.revision;
     s_cloud_last_draw = ctx->now_ms;
-    if (s_cloud_page * 8 >= status.count)
+    if (s_cloud_page * cloud_rows() >= status.count)
         s_cloud_page = 0;
     return APP_REDRAW_PAGE;
 }
@@ -165,7 +177,7 @@ static app_redraw_t gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     cloud_status_t status;
     cloud_get_status(&status);
     if (!status.busy && (ev->type == UI_GESTURE_SWIPE_U || ev->type == UI_GESTURE_SWIPE_L)) {
-        if ((s_cloud_page + 1) * 8 < status.count)
+        if ((s_cloud_page + 1) * cloud_rows() < status.count)
             ++s_cloud_page;
         return APP_REDRAW_PAGE;
     }
@@ -188,9 +200,8 @@ static app_redraw_t gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         return APP_REDRAW_NONE;
     }
     if (status.busy) {
-        if (ev->y0 >= 985 && ev->y0 < 1063)
-            cloud_cancel();
-        return APP_REDRAW_PAGE;
+        if(ev->y0>=985&&ev->y0<1063&&!status.cancel_requested){cloud_cancel();return APP_REDRAW_PAGE;}
+        return APP_REDRAW_NONE;
     }
     if (ev->y0 >= 176 && ev->y0 < 230 && ev->x0 >= 550) {
         s_cloud_page = 0;
@@ -203,8 +214,8 @@ static app_redraw_t gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         ctx->request_app = &app_device_settings;
         return APP_REDRAW_NONE;
     }
-    if (ev->y0 >= 244 && ev->y0 < 948) {
-        cloud_toggle(s_cloud_page * 8 + (ev->y0 - 244) / 88);
+    if (ev->y0 >= 244 && ev->y0 < 244+cloud_rows()*cloud_row_height()) {
+        cloud_toggle(s_cloud_page * cloud_rows() + (ev->y0 - 244) / cloud_row_height());
         return APP_REDRAW_PAGE;
     }
     if (ev->y0 >= 985 && ev->y0 < 1063) {
@@ -222,15 +233,18 @@ static bool no_menu(app_ctx_t *ctx) {
     (void)ctx;
     return false;
 }
+static bool prevent_idle_sleep(app_ctx_t *ctx){(void)ctx;cloud_status_t status;cloud_get_status(&status);return status.busy;}
 const app_desc_t app_cloud = {.title = "坚果云",
                               .detail = "勾选下载并离线阅读",
                               .owns_keys = true,
+                              .prevent_idle_sleep = prevent_idle_sleep,
                               .menu_handle_enabled = no_menu,
                               .on_enter = enter,
                               .on_exit = close_session,
                               .on_before_lock = close_session,
                               .on_media_lost = close_session,
                               .render = render,
+                              .present = present,
                               .on_tick = tick,
                               .on_gesture = gesture,
                               .on_key = key};

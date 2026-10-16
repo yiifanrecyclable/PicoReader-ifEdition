@@ -43,6 +43,12 @@ extern "C" {
 // label/value pair also fits the 604px content width at 40px. Dense pages use
 // the _SM pair in two columns and stay readable via alignment and rules, not a
 // smaller size.
+// 系统字级：标题、正文、辅助信息；状态栏/键盘/图表使用fixed API保持位置。
+// System type roles; status, keyboard and chart geometry keep explicit fixed sizes.
+#define UI_TEXT_TITLE 32
+#define UI_TEXT_HEADING UI_TEXT_TITLE
+#define UI_TEXT_BODY 28
+#define UI_TEXT_CAPTION 22
 #define UI_PX_TITLE 60
 #define UI_PX_SUB 30
 #define UI_PX_SECTION 30
@@ -93,6 +99,9 @@ extern "C" {
 // epdiy 图形接口取 8 位灰度（仅高 4 位有效），字体属性取 4 位灰度，两者不可混用。
 // epdiy graphics uses 8-bit gray (high nibble only); font attrs use 4-bit gray. Do not mix them.
 #define UI_GRAY_WHITE 0xFF
+// 分区与条目共用线色。/ Shared section and item separator tones.
+#define UI_GRAY_SECTION_LINE 0x58
+#define UI_GRAY_ITEM_LINE 0xbb
 #define UI_GRAY_LIGHT 0x90
 #define UI_GRAY_BLACK 0x00
 #define UI_INK_WHITE 15
@@ -107,9 +116,15 @@ void ui_draw_frosted_pocket(uint8_t *framebuffer, EpdRect rect);
 /// 系统页面字号放大 1.2 倍；阅读正文保持原字号。/ Enlarge system text by 1.2x while preserving reader text size.
 void ui_text_set_system_scale(bool enabled);
 void ui_text_set_system_font(bool enabled);
+/// 系统字号在控件边界内收敛；返回可用于fixed绘制的实际像素高。/ Fit scaled type within control bounds; return pixels for fixed drawing.
+int ui_text_fit_px(int px, const char *text, int width, int height);
+/// 字体实际墨迹参与行高，绘制/分页/命中共用。/ Share measured line metrics across painting, paging and hits.
+int ui_text_line_height(int px);
+int ui_list_row_height(bool with_caption);
+int ui_list_visible_rows(int top, int bottom, int row_height);
 int ui_text_effective_px(int px);
-/// 灰阶图片在绘制时增强明暗差，原始缓存保持不变。/ Increase image contrast at draw time without altering cached pixels.
-uint8_t ui_contrast_gray(uint8_t gray);
+/// 灰阶值映射到16级，不改变原始明暗关系。/ Quantize to 16 gray levels without altering contrast.
+uint8_t ui_gray_level(uint8_t gray);
 void ui_text(
     uint8_t* framebuffer, int x, int y_top, int px, const char* text,
     enum EpdFontFlags align, bool inverted

@@ -29,18 +29,36 @@ void ui_text_set_system_scale(bool enabled) { s_system_text_scale = enabled; }
 void ui_text_set_system_font(bool enabled) { s_system_ttf = enabled; }
 
 int ui_text_effective_px(int px) {
-    px += 2;
-    // 用户的系统字号只应用于系统界面；阅读正文及工具保持书内设置。
-    // Apply the UI-size preference only to system screens; reading uses its own settings.
-    return s_system_text_scale && px < 46 ?
-        (px * app_settings_system_font_size() + 50) / 100 : px;
+    // 阅读字体不归档；系统旧字级映射到统一的三级文字体系。
+    // Preserve reading typography; normalize legacy system sizes to three shared roles.
+    if (!s_system_text_scale) return px + 2;
+    int role = px <= 22 ? UI_TEXT_CAPTION : px <= 28 ? UI_TEXT_BODY : UI_TEXT_TITLE;
+    return (role * app_settings_system_font_size() + 50) / 100;
 }
 
-uint8_t ui_contrast_gray(uint8_t gray) {
-    int value = 128 + ((int)gray - 128) * app_settings_system_contrast() / 100;
-    if (value < 0) value = 0;
-    if (value > 255) value = 255;
-    return (uint8_t)value & 0xf0;
+int ui_text_fit_px(int px, const char *text, int width, int height) {
+    int size=ui_text_effective_px(px);
+    while(size>16 && (size>height || ui_text_fixed_width_px(size,text)>width)) --size;
+    return size;
+}
+
+int ui_text_line_height(int px) {
+    int above=0, below=0, actual=ui_text_effective_px(px);
+    ui_text_fixed_measure_px(actual,"国Agjy",&above,&below);
+    int ink=above+below;
+    int minimum=(actual*3+3)/4;
+    return (ink>minimum?ink:minimum)+8;
+}
+int ui_list_row_height(bool with_caption) {
+    return ui_text_line_height(UI_TEXT_BODY) + (with_caption?ui_text_line_height(UI_TEXT_CAPTION)+24:30);
+}
+int ui_list_visible_rows(int top,int bottom,int row_height) {
+    int n=row_height>0?(bottom-top)/row_height:0;
+    return n>0?n:1;
+}
+
+uint8_t ui_gray_level(uint8_t gray) {
+    return gray & 0xf0;
 }
 
 static uint8_t ui_read_pixel(const uint8_t *fb, int x, int y) {
@@ -103,7 +121,7 @@ void ui_draw_icon(
             const int background = ui_read_pixel(framebuffer, px, py) << 4;
             const int blended =
                 (background * (15 - cover) + (int)gray * cover + 7) / 15;
-            epd_draw_pixel(px, py, ui_contrast_gray((uint8_t)blended), framebuffer);
+            epd_draw_pixel(px, py, ui_gray_level((uint8_t)blended), framebuffer);
         }
     }
 }
@@ -376,7 +394,7 @@ static void draw_arc(
 void ui_draw_round_rect(
     uint8_t* framebuffer, EpdRect rect, int radius, uint8_t color
 ) {
-    color = ui_contrast_gray(color);
+    color = ui_gray_level(color);
     if (rect.width <= 0 || rect.height <= 0) return;
     const int r = clamp_radius(rect, radius);
     const int x1 = rect.x + rect.width - 1;
@@ -449,7 +467,7 @@ void ui_fill_round_rect(
     uint8_t* framebuffer, EpdRect rect, int radius, uint8_t color
 ) {
     if (rect.width <= 0 || rect.height <= 0) return;
-    color = ui_contrast_gray(color);
+    color = ui_gray_level(color);
     radius = clamp_radius(rect, radius);
 
     epd_fill_rect(
@@ -545,7 +563,7 @@ EpdRect ui_content_refresh_area(void) {
 }
 
 void ui_hairline(uint8_t* framebuffer, int y, int x, int w, uint8_t color) {
-    color = ui_contrast_gray(color);
+    color = ui_gray_level(color);
     epd_fill_rect(
         (EpdRect){ .x = x, .y = y, .width = w, .height = 1 }, color, framebuffer
     );
@@ -657,7 +675,7 @@ int ui_draw_section(uint8_t* framebuffer, int y, const char* title) {
         framebuffer, UI_MARGIN, y, UI_PX_SECTION, title,
         EPD_DRAW_ALIGN_LEFT, false
     );
-    int rule_y = y + UI_PX_SECTION + 8;
+    int rule_y=y+(s_system_text_scale?ui_text_line_height(UI_TEXT_TITLE):UI_PX_SECTION)+8;
     ui_hairline(framebuffer, rule_y, UI_MARGIN, ui_content_width(), UI_GRAY_BLACK);
     return rule_y + 10;
 }
@@ -665,58 +683,60 @@ int ui_draw_section(uint8_t* framebuffer, int y, const char* title) {
 int ui_draw_row(
     uint8_t* framebuffer, int y, const char* label, const char* value
 ) {
-    const int center = y + UI_ROW_H / 2;
+    int height=s_system_text_scale?ui_list_row_height(false):UI_ROW_H;
+    const int center=y+height/2;
     ui_text_vc(
-        framebuffer, UI_MARGIN, center, UI_PX_LABEL, label,
+        framebuffer, UI_MARGIN, center, s_system_text_scale?UI_TEXT_BODY:UI_PX_LABEL, label,
         EPD_DRAW_ALIGN_LEFT, false
     );
     if (value != NULL && value[0] != '\0') {
         ui_text_vc(
-            framebuffer, ui_content_right(), center, UI_PX_VALUE, value,
+            framebuffer, ui_content_right(), center, s_system_text_scale?UI_TEXT_BODY:UI_PX_VALUE, value,
             EPD_DRAW_ALIGN_RIGHT, false
         );
     }
     ui_hairline(
-        framebuffer, y + UI_ROW_H - 1, UI_MARGIN, ui_content_width(), UI_GRAY_LIGHT
+        framebuffer, y+height-1, UI_MARGIN, ui_content_width(), UI_GRAY_LIGHT
     );
-    return y + UI_ROW_H;
+    return y+height;
 }
 
 int ui_draw_row2(
     uint8_t* framebuffer, int y, const char* l1, const char* v1,
     const char* l2, const char* v2
 ) {
-    const int center = y + UI_ROW_H_SM / 2;
+    int height=s_system_text_scale?ui_list_row_height(false):UI_ROW_H_SM;
+    const int center=y+height/2;
     const int half = ui_content_width() / 2;
     const int mid = UI_MARGIN + half;
     const bool two = l2 != NULL && l2[0] != '\0';
     ui_text_vc(
-        framebuffer, UI_MARGIN, center, UI_PX_LABEL_SM, l1,
+        framebuffer, UI_MARGIN, center, s_system_text_scale?UI_TEXT_BODY:UI_PX_LABEL_SM, l1,
         EPD_DRAW_ALIGN_LEFT, false
     );
     if (v1 != NULL) {
         ui_text_vc(
             framebuffer, two ? mid - UI_PAD : ui_content_right(),
-            center, UI_PX_VALUE_SM, v1, EPD_DRAW_ALIGN_RIGHT, false
+            center, s_system_text_scale?UI_TEXT_BODY:UI_PX_VALUE_SM, v1, EPD_DRAW_ALIGN_RIGHT, false
         );
     }
     if (two) {
         ui_text_vc(
-            framebuffer, mid + UI_PAD, center, UI_PX_LABEL_SM, l2,
+            framebuffer, mid + UI_PAD, center, s_system_text_scale?UI_TEXT_BODY:UI_PX_LABEL_SM, l2,
             EPD_DRAW_ALIGN_LEFT, false
         );
         if (v2 != NULL) {
             ui_text_vc(
-                framebuffer, ui_content_right(), center, UI_PX_VALUE_SM, v2,
+                framebuffer, ui_content_right(), center, s_system_text_scale?UI_TEXT_BODY:UI_PX_VALUE_SM, v2,
                 EPD_DRAW_ALIGN_RIGHT, false
             );
         }
     }
     ui_hairline(
-        framebuffer, y + UI_ROW_H_SM - 1, UI_MARGIN, ui_content_width(),
+        framebuffer, y+height-1, UI_MARGIN, ui_content_width(),
         UI_GRAY_LIGHT
     );
-    return y + UI_ROW_H_SM;
+    return y+height;
 }
 
 int ui_draw_hero(
@@ -737,10 +757,10 @@ void ui_draw_button(
     uint8_t* framebuffer, EpdRect rect, const char* label, bool on
 ) {
     ui_draw_choice_round_rect(framebuffer, rect, UI_BTN_RADIUS, on);
-    ui_text_vc(
-        framebuffer, rect.x + rect.width / 2, rect.y + rect.height / 2,
-        UI_PX_BTN, label, EPD_DRAW_ALIGN_CENTER, false
-    );
+    if (s_system_text_scale) {
+        int px=ui_text_fit_px(UI_TEXT_BODY,label,rect.width-24,rect.height-16);
+        ui_text_fixed_vc(framebuffer,rect.x+rect.width/2,rect.y+rect.height/2,px,label,EPD_DRAW_ALIGN_CENTER,false);
+    } else ui_text_vc(framebuffer,rect.x+rect.width/2,rect.y+rect.height/2,UI_PX_BTN,label,EPD_DRAW_ALIGN_CENTER,false);
 }
 
 void ui_draw_chip(
