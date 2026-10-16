@@ -54,7 +54,8 @@ def prepare(image: bytes,release: dict,asset_id: str) -> dict:
     if asset.get('digest')!='sha256:'+metadata['sha256']:
         raise ValueError('GitHub asset SHA256 must match the local application image')
     return dict(schema=1,product=PRODUCT,project=PROJECT,layout=LAYOUT,channel='stable',available=True,
-                version=metadata['version'],size=len(image),sha256=metadata['sha256'],asset_id=asset_id)
+                version=metadata['version'],size=len(image),sha256=metadata['sha256'],asset_id=asset_id,
+                blob_sha=hashlib.sha1(b'blob '+str(len(image)).encode()+b'\0'+image).hexdigest())
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
