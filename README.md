@@ -1,10 +1,12 @@
-# Pico Reader IF Edition
+# if-ink OS
 
 基于 [Pico Reader 0.3.3-rc83](https://github.com/wegooo-cell/read-pico-reader) 的独立衍生版本，增加坚果云同步、Markdown 阅读与界面调整。仅适用 Pico RDP-G01-W。
 
-当前版本：**0.3.3-rc83-if.8**。
+公开下载版本：**Pico Reader IF Edition 0.3.3-rc83-if.8**。if-ink OS v0.1.0 正在开发，尚未发布。
 
-[下载与手动刷机教程](https://yiifanrecyclable.github.io/PicoReader-ifEdition/) · [GitHub 发布版本](https://github.com/yiifanrecyclable/PicoReader-ifEdition/releases/tag/0.3.3-rc83-if.8) · [中文安装说明](docs/安装说明.md)
+设备在线升级使用[独立稳定通道](ota/README.md)，首个正式版本验收发布后再开放。
+
+[下载与手动刷机教程](https://yiifanrecyclable.github.io/if-ink-OS/) · [GitHub 发布版本](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/0.3.3-rc83-if.8) · [中文安装说明](docs/安装说明.md)
 
 首次安装推荐使用电脑Chrome/Edge打开下载页在线刷机，无需安装Python或esptool；USB手动安装包作为备用。已安装IF后可使用TF更新包。第一次准备TF字体与词库资源，后续更新无需重装。用户已确认本地阅读、坚果云文档拉取保存与 if.8 表格显示在实机可用。
 

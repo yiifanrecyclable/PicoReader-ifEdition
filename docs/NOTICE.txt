@@ -5,7 +5,7 @@ Pico Reader IF Edition 0.3.3-rc83-if.8
 这是独立衍生版本，不是原作者或 MindReset 官方发布。保留上游版权及各组件声明。
 应用代码主体采用 Apache-2.0；epdiy 使用 LGPL-3.0-or-later；字体、词库等适用各自许可。
 完整许可文本见 licenses/。
-IF项目源码 https://github.com/yiifanrecyclable/PicoReader-ifEdition
-对应版本源码及构建/重新链接说明 https://github.com/yiifanrecyclable/PicoReader-ifEdition/tree/0.3.3-rc83-if.8
-对应版本源码下载 https://github.com/yiifanrecyclable/PicoReader-ifEdition/archive/refs/tags/0.3.3-rc83-if.8.zip
-版本页面 https://github.com/yiifanrecyclable/PicoReader-ifEdition/releases/tag/0.3.3-rc83-if.8
+IF项目源码 https://github.com/yiifanrecyclable/if-ink-OS
+对应版本源码及构建/重新链接说明 https://github.com/yiifanrecyclable/if-ink-OS/tree/0.3.3-rc83-if.8
+对应版本源码下载 https://github.com/yiifanrecyclable/if-ink-OS/archive/refs/tags/0.3.3-rc83-if.8.zip
+版本页面 https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/0.3.3-rc83-if.8
